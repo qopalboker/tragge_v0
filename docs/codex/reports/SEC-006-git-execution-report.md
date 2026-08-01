@@ -667,13 +667,17 @@ memory and are not reproduced.
 
 ## 69. Files changed and scope review
 
-The final SEC-006 change set contains 79 paths: 72 existing changed/added paths
-and seven retired deletions. Section 31 records the original edge-security set;
-the decision record's 41-row inventory records every retirement treatment. New
-remediation artifacts are the product-policy amendment, two retirement Go test
-files, the focused validator/test, and aligned report/catalog/regression data.
-No dependency or replacement provider was added. Review found no unrelated
-cleanup, SEC-007 implementation, Phase 1 gate artifact, or deployment change.
+The final SEC-006 implementation/remediation snapshot contains 80 paths: 73
+existing changed/added paths and seven retired deletions. Section 31 records the
+original edge-security set; the decision record's 41-row inventory records every
+retirement treatment. New remediation artifacts are the product-policy
+amendment, two retirement Go test files, the focused validator/test, and aligned
+report/catalog/regression data. The additional `.github/workflows/ci.yml` change
+is a delivery-only correction discovered by PR CI: it pins pnpm to the repository's
+existing `8.15.0` contract and limits incremental PR/push lint to issues introduced
+since the explicit base revision. It does not change application behavior. No
+dependency or replacement provider was added. Review found no unrelated cleanup,
+SEC-007 implementation, Phase 1 gate artifact, or deployment change.
 
 ## 70. Final validation summary
 
@@ -735,10 +739,26 @@ SEC-006 behavior without executed evidence.
 
 ## 74. Git delivery state at report finalization
 
-Local PASS is established before staging. The one authorized commit, branch
-push, draft pull request, checks/review, and policy-permitted merge occur only
-after the staged Payment4/secret/diff gates pass. Their immutable identifiers
-are external delivery evidence and are not fabricated inside their own commit.
+Local PASS was established before staging. Commit
+`3824085dfa73f579936e3a52ec53fb09b4fd81a1` used the required message and was
+pushed without force to the authorized task branch. Draft PR #1 was created at
+`https://github.com/qopalboker/tragge_v0/pull/1` and marked ready only after the
+mandatory local evidence passed.
+
+The first observable GitHub Actions run (`30719162073`) exposed two repository
+CI delivery defects. Frontend installation exited 1 because the workflow's
+floating `version: 8` resolved to pnpm `8.15.9` while package metadata requires
+exactly `8.15.0`. Go lint exited 1 on 154 baseline issues because the workflow
+ignored the existing incremental-lint target and linted all inherited debt.
+`detect-changes` passed. Tests/builds skipped after those failures and are not
+reported as successful. The focused workflow correction pins pnpm `8.15.0`,
+fetches base history, and passes the explicit PR base SHA (or push-before SHA) to
+`golangci-lint --new-from-rev`. Local static validation exited 0 for all five
+workflow invariants, pnpm reported `8.15.0`, and `git diff --check` exited 0. A
+requested frozen-lockfile reinstall was not recorded because the privilege-review
+channel disconnected; it is not claimed as executed. The clean GitHub replacement
+run is the authoritative delivery evidence and merge remains prohibited until it
+passes on the reviewed final head.
 
 ## 75. Current explicit decision
 
