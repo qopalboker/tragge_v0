@@ -26,6 +26,7 @@ import (
 	"github.com/Parsaeffatravesh/tragge/packages/observability"
 	pkgredis "github.com/Parsaeffatravesh/tragge/packages/redis"
 	"github.com/Parsaeffatravesh/tragge/packages/resilience/circuitbreaker"
+	"github.com/Parsaeffatravesh/tragge/packages/resilience/ratelimit"
 	"github.com/Parsaeffatravesh/tragge/packages/secrets"
 	"github.com/Parsaeffatravesh/tragge/packages/storage"
 	"github.com/Parsaeffatravesh/tragge/packages/validation"
@@ -97,6 +98,7 @@ type App struct {
 	kycStorage              storage.ObjectStore      // S3/MinIO storage for KYC documents
 	avatarStorage           storage.ObjectStore      // S3/MinIO storage for predefined avatar uploads
 	failedAdminLoginTracker *failedAdminLoginTracker // Tracks failed admin login attempts
+	distributedLoginLockout *ratelimit.LoginLockout
 	reauthentication        *auth.ReauthenticationService
 	banExpirySweeper        *banExpirySweeper // Periodically unbans expired temporary bans
 	totpEncryptionKey       []byte            // AES-256-GCM key for decrypting TOTP secrets
@@ -161,6 +163,10 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	}
 
 	cfg := loadConfig()
+	edgeEnvironment, edgeErr := validation.LoadAndValidateEdgeEnvironment(os.Getenv)
+	if edgeErr != nil {
+		log.Fatal("invalid edge security configuration")
+	}
 
 	// Initialize observability
 	ctx := context.Background()
@@ -421,6 +427,16 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 			zap.String("bucket", cfg.S3AvatarBucket))
 	}
 
+	var distributedLoginLockout *ratelimit.LoginLockout
+	if rdb != nil {
+		distributedLoginLockout, err = ratelimit.NewLoginLockout(rdb.UniversalClient, ratelimit.LockoutConfig{
+			Namespace: "admin", Threshold: 5, LockFor: 30 * time.Minute, Retention: 2 * time.Hour,
+		})
+		if err != nil {
+			log.Fatal("invalid Admin login lockout configuration")
+		}
+	}
+
 	app := &App{
 		pool:                    pool,
 		auth:                    authService,
@@ -437,6 +453,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		kycStorage:              kycStorage,
 		avatarStorage:           avatarStorage,
 		failedAdminLoginTracker: newFailedAdminLoginTracker(),
+		distributedLoginLockout: distributedLoginLockout,
 		reauthentication:        reauthentication,
 		totpEncryptionKey:       cfg.TOTPEncryptionKey,
 	}
@@ -496,25 +513,32 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	// Middleware stack (order matters)
 	// middleware.RealIP removed: it trusts X-Forwarded-For from any source,
 	// allowing IP spoofing. Use validation.ExtractClientIP with trusted proxy check instead.
+	var edgeRedis redis.UniversalClient
+	if rdb != nil {
+		edgeRedis = rdb.UniversalClient
+	}
+	edgePolicy := ratelimit.NewPolicyMiddleware(edgeRedis, ratelimit.PoliciesForService("admin"), nil, func(class ratelimit.EndpointClass, reason string) {
+		log.Warn("Edge security request denied", zap.String("policy_class", string(class)), zap.String("reason", reason))
+	})
 	r.Use(validation.RequestIDMiddleware)                             // Request ID tracking
 	r.Use(validation.CORSMiddleware(validation.AdminBFFCORSConfig())) // CORS handling
-	if config.IsProduction() {
-		r.Use(validation.CSRFMiddleware(validation.AdminBFFCSRFConfig())) // CSRF protection (production/staging only)
-	}
-	r.Use(validation.SecurityHeadersMiddleware)          // Security headers
-	r.Use(auth.RedactSecurityCredentialsForTelemetry)    // Hide session credentials from telemetry
-	r.Use(obs.Middleware.Middleware)                     // Observability (logging, tracing)
-	r.Use(sentryHandler.Handle)                          // Sentry panic capture
-	r.Use(auth.RestoreSecurityCredentialsAfterTelemetry) // Restore secure headers for auth handlers
-	r.Use(obs.Middleware.Recovery)                       // Sanitized panic recovery
+	r.Use(validation.CSRFMiddleware(validation.AdminBFFCSRFConfig())) // Context-specific CSRF protection
+	r.Use(validation.SecurityHeadersMiddleware)                       // Security headers
+	r.Use(edgePolicy.Handler)                                         // Distributed edge abuse controls
+	r.Use(auth.RedactSecurityCredentialsForTelemetry)                 // Hide session credentials from telemetry
+	r.Use(obs.Middleware.Middleware)                                  // Observability (logging, tracing)
+	r.Use(sentryHandler.Handle)                                       // Sentry panic capture
+	r.Use(auth.RestoreSecurityCredentialsAfterTelemetry)              // Restore secure headers for auth handlers
+	r.Use(obs.Middleware.Recovery)                                    // Sanitized panic recovery
 	// Note: chi middleware.Timeout removed ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â its defer cancel() races with
 	// pgx row scanning on Docker-proxied connections, causing "context canceled".
 	// The http.Server WriteTimeout (15s) provides an equivalent safety net.
-	r.Use(validation.MaxBytesMiddleware(2 * 1024 * 1024)) // 2MB max body size (avatar uploads need up to 2MB)
-	r.Use(validation.SanitizeFormMiddleware)              // Input sanitization
+	r.Use(validation.MaxBytesMiddleware(edgeEnvironment.DefaultBodyBytes))
+	r.Use(validation.ContentTypeMiddleware)
+	r.Use(validation.SanitizeFormMiddleware) // Input sanitization
 
 	// Support ticket routes ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â override body limit to 35MB because file uploads need up to 35MB overhead
-	fileUploadBodyLimit := validation.MaxBytesMiddleware(35 * 1024 * 1024)
+	fileUploadBodyLimit := validation.MaxBytesMiddleware(edgeEnvironment.UploadBodyBytes)
 	r.Route("/api/admin/tickets", func(r chi.Router) {
 		r.Use(fileUploadBodyLimit)
 		r.Use(app.auth.Middleware.RequireAuth)
@@ -557,6 +581,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	r.Route("/api/admin", func(r chi.Router) {
 		r.Use(app.auth.Middleware.RequireAuth)
 		r.Use(app.auth.Middleware.RequireAdminAccess)
+		r.Use(edgePolicy.ActorHandler)
 
 		// Current user info and permissions
 		r.Get("/me", app.handleAdminMe)
@@ -959,11 +984,13 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 
 	// Create server
 	srv := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              ":" + cfg.Port,
+		Handler:           r,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    edgeEnvironment.MaxHeaderBytes,
 	}
 
 	// Start server in goroutine

@@ -40,12 +40,6 @@ type Config struct {
 	JibitBaseURL     string
 	JibitAllowedIPs  []string // CIDR ranges for webhook IP whitelist
 
-	// Payment4 configuration
-	Payment4APIKey    string
-	Payment4IPNSecret string
-	Payment4BaseURL   string
-	Payment4Sandbox   bool
-
 	// Rate limiting configuration
 	PaymentRateLimit  int
 	PaymentRateWindow time.Duration
@@ -126,12 +120,6 @@ func loadConfig() *Config {
 	jibitCallbackURL := config.GetEnv("JIBIT_CALLBACK_URL", "")
 	jibitBaseURL := config.GetEnv("JIBIT_BASE_URL", "https://napi.jibit.ir/ppg/v3")
 
-	// Payment4 configuration
-	payment4APIKey := getSecretOrEnv("PAYMENT4_API_KEY", "", "")
-	payment4IPNSecret := getSecretOrEnv("PAYMENT4_IPN_SECRET", "", "")
-	payment4BaseURL := config.GetEnv("PAYMENT4_BASE_URL", "")
-	payment4Sandbox := config.GetEnv("PAYMENT4_SANDBOX", "false") == "true"
-
 	// Jibit webhook IP whitelist (comma-separated CIDRs)
 	var jibitAllowedIPs []string
 	if raw := os.Getenv("JIBIT_ALLOWED_IPS"); raw != "" {
@@ -198,10 +186,6 @@ func loadConfig() *Config {
 		JibitCallbackURL:               jibitCallbackURL,
 		JibitBaseURL:                   jibitBaseURL,
 		JibitAllowedIPs:                jibitAllowedIPs,
-		Payment4APIKey:                 payment4APIKey,
-		Payment4IPNSecret:              payment4IPNSecret,
-		Payment4BaseURL:                payment4BaseURL,
-		Payment4Sandbox:                payment4Sandbox,
 		PaymentRateLimit:               paymentRateLimit,
 		PaymentRateWindow:              paymentRateWindow,
 		WebhookSecretNowPayments:       nowPaymentsIPNSecret,

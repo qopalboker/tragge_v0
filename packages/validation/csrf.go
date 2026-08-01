@@ -32,13 +32,17 @@ type CSRFConfig struct {
 
 	// TrustedProxies indicates if we're behind trusted proxies (use X-Forwarded-Proto).
 	TrustedProxies bool
+
+	// CookieNames identifies credentials that make a browser request CSRF
+	// relevant. Bearer-only service clients are not forced into browser CSRF.
+	CookieNames []string
 }
 
 // DefaultCSRFConfig returns a secure default CSRF configuration.
 func DefaultCSRFConfig() CSRFConfig {
 	return CSRFConfig{
 		AllowedOrigins:        []string{},
-		SkipPaths:             []string{"/webhooks/"},
+		SkipPaths:             []string{},
 		RequireXRequestedWith: true,
 		TrustedProxies:        true,
 	}
@@ -111,7 +115,19 @@ func CSRFMiddleware(config CSRFConfig) func(http.Handler) http.Handler {
 				}
 			}
 
-			// Validate X-Requested-With header
+			browserCredential := false
+			for _, name := range config.CookieNames {
+				if cookie, err := r.Cookie(name); err == nil && cookie.Value != "" {
+					browserCredential = true
+					break
+				}
+			}
+			if !browserCredential && strings.HasPrefix(strings.ToLower(strings.TrimSpace(r.Header.Get("Authorization"))), "bearer ") {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			// Validate X-Requested-With header for browser credential contexts.
 			if config.RequireXRequestedWith {
 				xrw := r.Header.Get("X-Requested-With")
 				if xrw != "XMLHttpRequest" {
@@ -136,14 +152,6 @@ func CSRFMiddleware(config CSRFConfig) func(http.Handler) http.Handler {
 			// this might be a same-origin request from older browsers.
 			// For defense-in-depth with JWT, we still require X-Requested-With.
 			if origin == "" {
-				// Context-specific User/Admin middleware fails closed without an
-				// origin. Generic legacy middleware preserves the older XRW-only
-				// fallback until SEC-006 owns the broader CSRF program.
-				if config.Context == "" && config.RequireXRequestedWith {
-					next.ServeHTTP(w, r)
-					return
-				}
-				// If X-Requested-With is not required and no origin, reject
 				WriteError(w, http.StatusForbidden, "CSRF_ORIGIN_MISSING",
 					"Origin header required for state-changing requests")
 				return
@@ -238,16 +246,19 @@ func MatchWildcardOrigin(origin, pattern string) bool {
 func UserBFFCSRFConfig() CSRFConfig {
 	config := CSRFConfigFromEnv()
 	config.Context = auth.UserCSRFContext
-	if userOrigin := strings.TrimSpace(os.Getenv("USER_FRONTEND_ORIGIN")); userOrigin != "" {
-		config.AllowedOrigins = []string{userOrigin}
-	}
+	config.SkipPaths = nil
+	config.CookieNames = []string{auth.UserRefreshCookieName}
+	config.AllowedOrigins = UserBFFCORSConfig().AllowedOrigins
 	return config
 }
 
 // TradeBFFCSRFConfig returns CSRF configuration for trade-bff.
 func TradeBFFCSRFConfig() CSRFConfig {
 	config := CSRFConfigFromEnv()
-	// trade-bff specific settings
+	config.Context = auth.UserCSRFContext
+	config.SkipPaths = nil
+	config.CookieNames = []string{auth.UserRefreshCookieName}
+	config.AllowedOrigins = TradeBFFCORSConfig().AllowedOrigins
 	return config
 }
 
@@ -255,9 +266,9 @@ func TradeBFFCSRFConfig() CSRFConfig {
 func AdminBFFCSRFConfig() CSRFConfig {
 	config := CSRFConfigFromEnv()
 	config.Context = auth.AdminCSRFContext
-	if adminOrigin := strings.TrimSpace(os.Getenv("ADMIN_FRONTEND_ORIGIN")); adminOrigin != "" {
-		config.AllowedOrigins = []string{adminOrigin}
-	}
+	config.SkipPaths = nil
+	config.CookieNames = []string{auth.AdminRefreshCookieName}
+	config.AllowedOrigins = AdminBFFCORSConfig().AllowedOrigins
 	return config
 }
 

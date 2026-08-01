@@ -100,6 +100,7 @@ const expectedCatalogItems = [
   "Trading Engine command/event contracts",
   "Settlement result snapshot",
   "Outbox/inbox event envelope",
+  "Payment-provider retirement decision",
   "User/Admin authentication isolation",
   "Sensitive-action reauthentication contract",
   "Super Admin MFA contract",
@@ -235,11 +236,13 @@ test("version catalog distinguishes current, planned, and legacy versions", () =
   const rows = versionRows(read(glossaryPath));
   assert.deepEqual([...rows.keys()].sort(), [...expectedCatalogItems].sort());
 
-  assert.equal(rows.get("Fixed product-policy document").identifier, "`2026-07-29.1`");
-  assert.equal(rows.get("Production roadmap").identifier, "`2026-07-29.1`");
+  assert.equal(rows.get("Fixed product-policy document").identifier, "`2026-08-01.1`");
+  assert.equal(rows.get("Production roadmap").identifier, "`2026-08-01.1`");
   assert.equal(rows.get("Target architecture ADR").identifier, "`ADR-0001`");
   assert.equal(rows.get("Prize distribution").identifier, "`tralent_v1`");
   assert.equal(rows.get("Market Data event contract").identifier, "`v2`");
+  assert.equal(rows.get("Payment-provider retirement decision").identifier, "`PAYMENT4-RETIREMENT-2026-08-01`");
+  assert.match(rows.get("Payment-provider retirement decision").status, /current product decision/);
   assert.match(rows.get("Legacy shared event schemas").status, /legacy/);
   assert.match(rows.get("User/Admin authentication isolation").status, /current implementation/);
   assert.match(rows.get("User/Admin authentication isolation").identifier, /No public contract version assigned/);

@@ -218,18 +218,21 @@ func TestIPExtractor(t *testing.T) {
 		name       string
 		headers    map[string]string
 		remoteAddr string
+		trusted    string
 		expected   string
 	}{
 		{
 			name:       "X-Forwarded-For",
 			headers:    map[string]string{"X-Forwarded-For": "1.2.3.4, 5.6.7.8"},
 			remoteAddr: "10.0.0.1:1234",
+			trusted:    "10.0.0.0/8,5.6.7.8/32",
 			expected:   "1.2.3.4",
 		},
 		{
 			name:       "X-Real-IP",
 			headers:    map[string]string{"X-Real-IP": "1.2.3.4"},
 			remoteAddr: "10.0.0.1:1234",
+			trusted:    "10.0.0.0/8",
 			expected:   "1.2.3.4",
 		},
 		{
@@ -242,6 +245,7 @@ func TestIPExtractor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("TRUSTED_PROXY_CIDRS", tt.trusted)
 			req := httptest.NewRequest("GET", "/test", nil)
 			req.RemoteAddr = tt.remoteAddr
 			for k, v := range tt.headers {

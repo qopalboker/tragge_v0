@@ -66,9 +66,11 @@ delta ledger. SEC-001 adds seven Go files (five tests); SEC-002 adds two Go
 files (one test) and two TypeScript files; SEC-003 adds twelve Go files (ten
 tests) and one TypeScript file; SEC-004 adds five Go files (three tests), two
 TypeScript files, two SQL files, and one up migration; SEC-005 adds eight Go
-files (four tests) and one TypeScript test. The current working tree therefore
-contains 409 Go files, 122 Go test files, 184 TypeScript/TSX files, 204 SQL
-files, and 99 up migrations. Vue remains at the approved 211-file snapshot.
+files (four tests) and one TypeScript test; SEC-006 has a final net addition of
+two Go test files after retiring seven active provider Go files and adding two
+retirement tests. The current working tree therefore contains 411 Go files,
+123 Go test files, 184 TypeScript/TSX files, 204 SQL files, and 99 up migrations.
+Vue remains at the approved 211-file snapshot.
 The 99th down migration is
 [`0000_baseline.down.sql`](../../packages/db/migrations/0000_baseline.down.sql),
 which has no matching up migration. The numbered implementation series has 98

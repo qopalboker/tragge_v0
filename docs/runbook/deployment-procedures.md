@@ -56,8 +56,9 @@ kubectl auth can-i create deployments -n tragge
 - [ ] Docker images built and pushed to registry
 - [ ] Database migrations reviewed (if any)
 - [ ] External secrets configured in Vault
-- [ ] Payment4 API key configured (if crypto payments enabled)
-- [ ] Payment4 webhook URL registered in Payment4 dashboard (`https://yourdomain.com/webhooks/payment4`)
+- [ ] NOWPayments API key and webhook secret configured when crypto payments are enabled
+- [ ] NOWPayments webhook URL registered as `https://yourdomain.com/webhooks/nowpayments`
+- [ ] Jibit credentials and callback allowlist configured when Rial payments are enabled
 - [ ] Backup verification completed successfully
 - [ ] On-call engineer notified
 - [ ] Deployment window approved (for production)

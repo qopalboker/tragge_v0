@@ -1,6 +1,6 @@
 # Tragge — Production Roadmap and Independent Codex Tasks
 
-**Roadmap version:** `2026-07-29.1`  
+**Roadmap version:** `2026-08-01.1`
 **Current production decision:** **NO-GO**  
 **Execution goal:** fastest safe launch without preserving broken architecture or
 creating avoidable rework  
@@ -796,11 +796,19 @@ Required implementation:
 - Standardize request size limits, origin checks, CSRF, CORS, security headers, IP/user rate limits, login lockout, OTP throttling, and payment webhook allow rules.
 - Provide separate limits for join, order, cancel, login, OTP, deposit, withdrawal, and admin actions.
 - Avoid trusting unverified proxy headers.
+- Apply [PAYMENT4-RETIREMENT-2026-08-01](../product/payment4-retirement-policy-amendment.md):
+  remove Payment4 from active runtime, configuration, routes, secrets, tests,
+  frontends, and operations surfaces without adding a replacement provider.
+- Replace obsolete Payment4 end-to-end evidence with executable retirement,
+  remaining-provider, fresh-initialization, and regression evidence.
 
 Acceptance criteria:
 - Every public endpoint class has an explicit abuse policy.
 - Security headers and CORS differ correctly for user/admin origins.
 - Rate-limit decisions are observable and deterministic.
+- Payment4 has no active implementation, selectable configuration, route,
+  webhook, secret, startup dependency, frontend option, or runtime-test gate.
+- Remaining provider security controls pass independently without Payment4.
 
 Verification:
 - Unit and integration tests for each endpoint class.
@@ -812,7 +820,7 @@ Delivery:
 - Add targeted tests and run them.
 - Run lint/typecheck/build for touched modules.
 - Provide an implementation summary and unresolved risks.
-- Commit as: `feat(security): add platform abuse controls`.
+- Commit as: `feat(security): add abuse controls and retire Payment4`.
 - Push and open a PR; merge only after all required checks pass.
 ```
 

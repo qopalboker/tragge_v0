@@ -390,6 +390,18 @@ func (a *App) handleRegister(w http.ResponseWriter, r *http.Request) {
 
 func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	clientIP := getClientIP(r)
+	if a.distributedLoginLockout == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": msg.InternalError})
+		return
+	}
+	if allowed, retryAfter, err := a.distributedLoginLockout.Check(r.Context(), "ip:"+clientIP); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": msg.InternalError})
+		return
+	} else if !allowed {
+		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": msg.TooManyLoginAttempts})
+		return
+	}
 
 	// Check if client IP is currently locked out due to too many failures
 	if locked, retryAfter := a.failedLoginTracker.checkLocked(clientIP); locked {
@@ -425,6 +437,15 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	req.Email = validation.SanitizeEmail(req.Email)
 
 	ctx := r.Context()
+	lockoutIdentities := []string{"ip:" + clientIP, "account:" + req.Email}
+	if allowed, retryAfter, err := a.distributedLoginLockout.Check(ctx, lockoutIdentities...); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": msg.InternalError})
+		return
+	} else if !allowed {
+		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": msg.TooManyLoginAttempts})
+		return
+	}
 
 	// Get user by email (use Primary for auth - ensures latest password hash)
 	var userID, passwordHash string
@@ -441,6 +462,10 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 			_ = auth.VerifyPassword(req.Password, auth.DummyHash)
 
 			// Record failed attempt and log for security monitoring
+			if _, lockErr := a.distributedLoginLockout.Failure(ctx, lockoutIdentities...); lockErr != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": msg.InternalError})
+				return
+			}
 			delay := a.failedLoginTracker.recordFailure(clientIP)
 			a.log().Warn("Failed login attempt - user not found",
 				zap.String("email", req.Email),
@@ -481,6 +506,10 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	// Verify password
 	if err := a.auth.VerifyPassword(req.Password, passwordHash); err != nil {
 		// Record failed attempt and log for security monitoring
+		if _, lockErr := a.distributedLoginLockout.Failure(ctx, lockoutIdentities...); lockErr != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": msg.InternalError})
+			return
+		}
 		delay := a.failedLoginTracker.recordFailure(clientIP)
 		a.log().Warn("Failed login attempt - invalid password",
 			zap.String("user_id", userID),
@@ -565,6 +594,10 @@ func (a *App) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Successful login without 2FA - clear failed attempt tracking
+	if err := a.distributedLoginLockout.Success(ctx, lockoutIdentities...); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": msg.InternalError})
+		return
+	}
 	a.failedLoginTracker.recordSuccess(clientIP)
 
 	a.auditLogger.LogFromRequest(r, userID, audit.EventLogin, map[string]interface{}{

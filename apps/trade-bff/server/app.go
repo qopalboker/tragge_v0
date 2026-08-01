@@ -26,6 +26,7 @@ import (
 	"github.com/Parsaeffatravesh/tragge/packages/observability"
 	pkgredis "github.com/Parsaeffatravesh/tragge/packages/redis"
 	"github.com/Parsaeffatravesh/tragge/packages/resilience/circuitbreaker"
+	"github.com/Parsaeffatravesh/tragge/packages/resilience/ratelimit"
 	"github.com/Parsaeffatravesh/tragge/packages/secrets"
 	"github.com/Parsaeffatravesh/tragge/packages/validation"
 	"github.com/getsentry/sentry-go"
@@ -201,6 +202,10 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	}
 
 	cfg := loadConfig()
+	edgeEnvironment, edgeErr := validation.LoadAndValidateEdgeEnvironment(os.Getenv)
+	if edgeErr != nil {
+		log.Fatal("invalid edge security configuration")
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -516,12 +521,20 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		Repanic: true, // Re-panic after capture so sanitized recovery handles it
 	})
 
+	var edgeRedis redis.UniversalClient
+	if redisClient != nil {
+		edgeRedis = redisClient.UniversalClient
+	}
+	edgePolicy := ratelimit.NewPolicyMiddleware(edgeRedis, ratelimit.PoliciesForService("trade"), nil, func(class ratelimit.EndpointClass, reason string) {
+		log.Warn("Edge security request denied", zap.String("policy_class", string(class)), zap.String("reason", reason))
+	})
+
 	// Middleware stack (order matters)
-	r.Use(middleware.RealIP)                                          // Get real client IP
 	r.Use(validation.RequestIDMiddleware)                             // Request ID tracking
 	r.Use(validation.CORSMiddleware(validation.TradeBFFCORSConfig())) // CORS handling (includes WebSocket headers)
 	r.Use(validation.CSRFMiddleware(validation.TradeBFFCSRFConfig())) // CSRF protection
 	r.Use(validation.SecurityHeadersMiddleware)                       // Security headers
+	r.Use(edgePolicy.Handler)                                         // Distributed edge abuse controls
 	r.Use(redactWSTicketForTelemetry)                                 // Remove bounded ticket from telemetry URL
 	r.Use(auth.RedactSecurityCredentialsForTelemetry)                 // Hide session credentials from telemetry
 	r.Use(obs.Middleware.Middleware)                                  // Observability (logging, tracing)
@@ -529,7 +542,8 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	r.Use(auth.RestoreSecurityCredentialsAfterTelemetry)              // Restore secure headers for auth handlers
 	r.Use(obs.Middleware.Recovery)                                    // Sanitized panic recovery
 	r.Use(middleware.Timeout(30 * time.Second))                       // Request timeout
-	r.Use(validation.MaxBytesMiddleware(1 * 1024 * 1024))             // 1MB max body size
+	r.Use(validation.MaxBytesMiddleware(edgeEnvironment.DefaultBodyBytes))
+	r.Use(validation.ContentTypeMiddleware)
 
 	r.Get("/healthz", app.handleHealthz)
 	r.Get("/readyz", app.handleReadyz)
@@ -568,6 +582,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		r.Group(func(r chi.Router) {
 			// All middleware must be defined before routes
 			r.Use(app.auth.Middleware.RequireAuth)
+			r.Use(edgePolicy.ActorHandler)
 			r.Use(app.shardMiddleware.InjectShardContext)
 			// WebSocket ticket endpoint (exchanges JWT for short-lived ticket)
 			r.Post("/ws-ticket", app.handleWSTicket)
@@ -593,11 +608,13 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 
 	// Create HTTP server
 	srv := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              ":" + cfg.Port,
+		Handler:           r,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    edgeEnvironment.MaxHeaderBytes,
 	}
 
 	// Start server

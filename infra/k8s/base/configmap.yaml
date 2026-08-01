@@ -50,12 +50,6 @@ data:
   SUCCESS_REDIRECT_URL: "https://tragge.com/payment/result?status=1"
   CANCEL_REDIRECT_URL: "https://tragge.com/payment/result?status=0"
 
-  # Payment4 Crypto Gateway
-  PAYMENT4_CALLBACK_URL: "https://tragge.com/payment/result"
-  PAYMENT4_WEBHOOK_URL: "https://tragge.com/webhooks/payment4"
-  PAYMENT4_BASE_URL: "https://api.payment4.com/api/v1"
-  PAYMENT4_SANDBOX: "false"
-
   # ---------------------------------------------------------------------------
   # Database Connection Pool Settings (per-service)
   # ---------------------------------------------------------------------------

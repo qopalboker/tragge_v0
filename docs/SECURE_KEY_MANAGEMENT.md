@@ -111,8 +111,10 @@ infra/docker/secrets/
 ├── massive_api_keys.txt         # Massive API keys (comma-separated)
 ├── resend_api_key.txt           # Resend email API key
 ├── discord_webhook_url.txt      # Discord webhook URL
-├── payment4_api_key.txt         # Payment4 API key
-├── payment4_ipn_secret.txt      # Payment4 IPN webhook secret
+├── nowpayments_api_key.txt      # NOWPayments API key
+├── nowpayments_ipn_secret.txt   # NOWPayments webhook secret
+├── jibit_api_key.txt            # Jibit API key
+├── jibit_secret_key.txt         # Jibit secret key
 ├── *.example.txt                # Example files (safe to commit)
 ```
 
@@ -197,8 +199,10 @@ vault write auth/kubernetes/role/tragge-app \
 | `MASSIVE_API_KEYS` | Market data (Massive) | On compromise |
 | `RESEND_API_KEY` | Email notifications | On compromise |
 | `DISCORD_WEBHOOK_URL` | Alert notifications | On compromise |
-| `PAYMENT4_API_KEY` | Crypto payments (Payment4) | On compromise |
-| `PAYMENT4_IPN_SECRET` | Payment4 webhook signature verification | On compromise |
+| `NOWPAYMENTS_API_KEY` | Crypto payments (NOWPayments) | On compromise |
+| `NOWPAYMENTS_IPN_SECRET` | NOWPayments webhook signature verification | On compromise |
+| `JIBIT_API_KEY` | Rial payments (Jibit) | On compromise |
+| `JIBIT_SECRET_KEY` | Jibit request authentication | On compromise |
 | `GRAFANA_ADMIN_PASSWORD` | Grafana dashboard access | 90 days |
 
 ### Multi-Key Support
@@ -286,10 +290,10 @@ secrets:
     file: ./secrets/jwt_secret.txt
   postgres_password:
     file: ./secrets/postgres_password.txt
-  payment4_api_key:
-    file: ./secrets/payment4_api_key.txt
-  payment4_ipn_secret:
-    file: ./secrets/payment4_ipn_secret.txt
+  nowpayments_api_key:
+    file: ./secrets/nowpayments_api_key.txt
+  nowpayments_ipn_secret:
+    file: ./secrets/nowpayments_ipn_secret.txt
 ```
 
 ### Using Secrets in Services

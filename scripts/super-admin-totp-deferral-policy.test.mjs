@@ -47,7 +47,7 @@ function compact(value) {
 
 test("fixed policy records the current password-login stage and future MFA gate", () => {
   const policy = read(policyPath);
-  assert.match(policy, /\*\*Policy version:\*\* `2026-07-29\.1`/);
+  assert.match(policy, /\*\*Policy version:\*\* `2026-08-01\.1`/);
   assert.match(policy, /Super Admin login may remain password-based/);
   assert.match(policy, /Mandatory TOTP during initial Super Admin login is deferred to planned task\s+`SEC-007`/);
   assert.match(policy, /`SEC-004` must not implement, activate, require, or partially roll\s+out login TOTP/);
@@ -126,7 +126,7 @@ test("Phase 1 controller separates SEC-004 from planned SEC-007", () => {
 
 test("glossary and version catalog distinguish implemented and planned security states", () => {
   const glossary = read(glossaryPath);
-  assert.match(glossary, /\*\*Catalog version:\*\* `2026-07-29\.1`/);
+  assert.match(glossary, /\*\*Catalog version:\*\* `2026-08-01\.1`/);
   assert.match(glossary, /\*\*Super Admin\*\*[^\n]*SEC-007/);
   assert.match(glossary, /\*\*Sensitive-Action Password Reauthentication\*\*[^\n]*`SEC-004`/);
   assert.match(glossary, /\*\*Reauthentication Grant\*\*[^\n]*short-lived, single-use/);

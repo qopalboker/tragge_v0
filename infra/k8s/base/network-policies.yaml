@@ -285,7 +285,7 @@ spec:
       ports:
         - protocol: TCP
           port: 9092
-    # Allow egress to external payment providers (NOWPayments, Jibit, Payment4)
+		# Allow egress to external payment providers (NOWPayments and Jibit)
     # Using IP blocks for external HTTPS access
     - to:
         - ipBlock:

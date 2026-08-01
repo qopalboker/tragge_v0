@@ -1,100 +1,130 @@
 package validation
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"os"
 	"strings"
-	"sync"
 )
 
-// defaultTrustedProxies are private/loopback CIDRs trusted by default.
-var defaultTrustedCIDRs = []string{
-	"127.0.0.0/8",
-	"10.0.0.0/8",
-	"172.16.0.0/12",
-	"192.168.0.0/16",
-}
-
-var (
-	trustedProxiesOnce sync.Once
-	trustedProxies     []*net.IPNet
-)
-
-// loadTrustedProxies parses TRUSTED_PROXY_CIDRS (comma-separated) or uses defaults.
-func loadTrustedProxies() []*net.IPNet {
-	trustedProxiesOnce.Do(func() {
-		cidrs := defaultTrustedCIDRs
-		if env := os.Getenv("TRUSTED_PROXY_CIDRS"); env != "" {
-			cidrs = strings.Split(env, ",")
+// ParseTrustedProxyCIDRs parses an explicit immediate-proxy allowlist. Empty
+// input trusts no proxy. Production never receives implicit private-network
+// trust: an operator must identify every ingress hop deliberately.
+func ParseTrustedProxyCIDRs(raw string) ([]*net.IPNet, error) {
+	var proxies []*net.IPNet
+	for _, value := range strings.Split(raw, ",") {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
 		}
-		for _, cidr := range cidrs {
-			cidr = strings.TrimSpace(cidr)
-			if cidr == "" {
-				continue
+		if ip := net.ParseIP(value); ip != nil {
+			bits := 128
+			if ip.To4() != nil {
+				bits = 32
 			}
-			_, network, err := net.ParseCIDR(cidr)
-			if err != nil {
-				continue
-			}
-			trustedProxies = append(trustedProxies, network)
+			proxies = append(proxies, &net.IPNet{IP: ip, Mask: net.CIDRMask(bits, bits)})
+			continue
 		}
-	})
-	return trustedProxies
+		_, network, err := net.ParseCIDR(value)
+		if err != nil {
+			return nil, fmt.Errorf("invalid trusted proxy CIDR")
+		}
+		proxies = append(proxies, network)
+	}
+	return proxies, nil
 }
 
-// ExtractClientIP extracts the real client IP from an HTTP request.
-// If RemoteAddr is within a trusted proxy CIDR, it reads X-Real-IP first,
-// then the first entry of X-Forwarded-For. Otherwise it returns RemoteAddr.
-//
-// Trusted proxies are loaded from TRUSTED_PROXY_CIDRS env var (comma-separated CIDRs),
-// defaulting to 127.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16.
-func ExtractClientIP(r *http.Request) string {
-	return ExtractClientIPWithProxies(r, loadTrustedProxies())
+// TrustedProxiesFromEnv returns the configured trusted ingress hops. There are
+// no permissive private-network defaults.
+func TrustedProxiesFromEnv() ([]*net.IPNet, error) {
+	return ParseTrustedProxyCIDRs(os.Getenv("TRUSTED_PROXY_CIDRS"))
 }
 
-// ExtractClientIPWithProxies extracts the real client IP using an explicit trusted proxy list.
-func ExtractClientIPWithProxies(r *http.Request, proxies []*net.IPNet) string {
-	// Parse RemoteAddr (host:port)
-	remoteHost, _, err := net.SplitHostPort(r.RemoteAddr)
+func containsIP(networks []*net.IPNet, ip net.IP) bool {
+	for _, network := range networks {
+		if network != nil && ip != nil && network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func remoteIP(remoteAddr string) net.IP {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(remoteAddr))
 	if err != nil {
-		remoteHost = r.RemoteAddr
+		host = strings.Trim(strings.TrimSpace(remoteAddr), "[]")
+	}
+	return net.ParseIP(host)
+}
+
+// ExtractClientIP uses the socket peer unless that immediate peer is in the
+// explicit trusted-proxy set. Invalid configuration or headers fail safely by
+// returning the socket peer.
+func ExtractClientIP(r *http.Request) string {
+	proxies, err := TrustedProxiesFromEnv()
+	if err != nil {
+		proxies = nil
+	}
+	return ExtractClientIPWithProxies(r, proxies)
+}
+
+// ExtractClientIPWithProxies walks X-Forwarded-For from the immediate peer
+// toward the client and stops at the first untrusted hop. This prevents a
+// caller from selecting an arbitrary left-most address. X-Real-IP is used only
+// when X-Forwarded-For is absent and contains one valid address.
+func ExtractClientIPWithProxies(r *http.Request, proxies []*net.IPNet) string {
+	peer := remoteIP(r.RemoteAddr)
+	if peer == nil {
+		return "unknown"
+	}
+	peerText := peer.String()
+	if !containsIP(proxies, peer) {
+		return peerText
 	}
 
-	remoteIP := net.ParseIP(remoteHost)
-	if remoteIP == nil {
-		return remoteHost
+	if forwarded := r.Header.Values("X-Forwarded-For"); len(forwarded) > 0 {
+		var chain []net.IP
+		for _, header := range forwarded {
+			for _, raw := range strings.Split(header, ",") {
+				ip := net.ParseIP(strings.Trim(strings.TrimSpace(raw), "[]"))
+				if ip == nil {
+					return peerText
+				}
+				chain = append(chain, ip)
+			}
+		}
+		current := peer
+		for i := len(chain) - 1; i >= 0; i-- {
+			if !containsIP(proxies, current) {
+				break
+			}
+			current = chain[i]
+		}
+		return current.String()
 	}
 
-	// Only trust proxy headers if RemoteAddr is from a trusted proxy
-	isTrusted := false
-	for _, cidr := range proxies {
-		if cidr.Contains(remoteIP) {
-			isTrusted = true
-			break
+	if real := strings.TrimSpace(r.Header.Get("X-Real-IP")); real != "" {
+		if strings.Contains(real, ",") {
+			return peerText
+		}
+		if ip := net.ParseIP(strings.Trim(real, "[]")); ip != nil {
+			return ip.String()
 		}
 	}
+	return peerText
+}
 
-	if !isTrusted {
-		return remoteHost
+// IsSecureRequest recognizes a direct TLS request or a trusted proxy's exact
+// https forwarding signal. Untrusted callers cannot enable HSTS/cookie policy
+// by spoofing X-Forwarded-Proto.
+func IsSecureRequest(r *http.Request) bool {
+	if r.TLS != nil {
+		return true
 	}
-
-	// X-Real-IP is typically set by nginx proxy_set_header
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		trimmed := strings.TrimSpace(ip)
-		if parsed := net.ParseIP(trimmed); parsed != nil {
-			return trimmed
-		}
+	proxies, err := TrustedProxiesFromEnv()
+	if err != nil || !containsIP(proxies, remoteIP(r.RemoteAddr)) {
+		return false
 	}
-
-	// X-Forwarded-For may contain: client, proxy1, proxy2
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		parts := strings.SplitN(xff, ",", 2)
-		trimmed := strings.TrimSpace(parts[0])
-		if parsed := net.ParseIP(trimmed); parsed != nil {
-			return trimmed
-		}
-	}
-
-	return remoteHost
+	return strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Forwarded-Proto")), "https")
 }

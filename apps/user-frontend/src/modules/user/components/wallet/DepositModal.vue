@@ -4,7 +4,7 @@ import { t } from '@/i18n';
 import { useWalletStore } from '@/stores/wallet';
 import { useI18nStore } from '@/stores/i18n';
 import { useToast } from '@/composables/useToast';
-import { walletApi, type CryptoProvider } from '@/api';
+import { walletApi } from '@/api';
 
 const props = defineProps<{
   show: boolean;
@@ -137,8 +137,7 @@ async function handleDeposit(): Promise<void> {
         toast.error(walletStore.error);
       }
     } else {
-      // Crypto deposit via Payment4
-      const result = await walletStore.createCryptoDeposit(amountCents, '', 'payment4' as CryptoProvider, 'USD');
+      const result = await walletStore.createCryptoDeposit(amountCents);
       if (result?.payment_url) {
         window.open(result.payment_url, '_blank');
         closeModal();

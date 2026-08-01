@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -17,9 +18,9 @@ import (
 	"github.com/Parsaeffatravesh/tragge/apps/payment-service/providers"
 	"github.com/Parsaeffatravesh/tragge/packages/infra"
 	"github.com/Parsaeffatravesh/tragge/packages/notification"
-	"github.com/Parsaeffatravesh/tragge/packages/validation"
 	"github.com/Parsaeffatravesh/tragge/packages/notification/inapp"
 	"github.com/Parsaeffatravesh/tragge/packages/notification/prefs"
+	"github.com/Parsaeffatravesh/tragge/packages/validation"
 	"github.com/Parsaeffatravesh/tragge/packages/wallet"
 	"go.uber.org/zap"
 )
@@ -103,11 +104,15 @@ type WebhookHandler struct {
 	successRedirectURL string
 	cancelRedirectURL  string
 	circuits           DatabaseCircuitExecutor
-	metrics            PaymentMetricsObserver
+	security           *WebhookSecurity
 }
 
 // NewWebhookHandler creates a new webhook handler
-func NewWebhookHandler(db *sql.DB, walletService *wallet.Service, registry *providers.ProviderRegistry, emailNotifier *notification.EmailNotifier, logger *zap.Logger, successRedirectURL, cancelRedirectURL string, circuits DatabaseCircuitExecutor, metrics PaymentMetricsObserver) *WebhookHandler {
+func NewWebhookHandler(db *sql.DB, walletService *wallet.Service, registry *providers.ProviderRegistry, emailNotifier *notification.EmailNotifier, logger *zap.Logger, successRedirectURL, cancelRedirectURL string, circuits DatabaseCircuitExecutor, security ...*WebhookSecurity) *WebhookHandler {
+	var webhookSecurity *WebhookSecurity
+	if len(security) > 0 {
+		webhookSecurity = security[0]
+	}
 	return &WebhookHandler{
 		db:                 db,
 		walletService:      walletService,
@@ -117,18 +122,13 @@ func NewWebhookHandler(db *sql.DB, walletService *wallet.Service, registry *prov
 		successRedirectURL: successRedirectURL,
 		cancelRedirectURL:  cancelRedirectURL,
 		circuits:           circuits,
-		metrics:            metrics,
+		security:           webhookSecurity,
 	}
 }
 
 // HandleNowPaymentsWebhook handles POST /webhooks/nowpayments
 func (h *WebhookHandler) HandleNowPaymentsWebhook(w http.ResponseWriter, r *http.Request) {
 	h.handleWebhook(w, r, providers.ProviderNowPayments)
-}
-
-// HandlePayment4Webhook handles POST /webhooks/payment4
-func (h *WebhookHandler) HandlePayment4Webhook(w http.ResponseWriter, r *http.Request) {
-	h.handleWebhook(w, r, providers.ProviderPayment4)
 }
 
 // handleWebhook is the common webhook handling logic
@@ -168,8 +168,25 @@ func (h *WebhookHandler) handleWebhook(w http.ResponseWriter, r *http.Request, p
 		h.logger.Warn("Webhook verification failed",
 			zap.Error(err),
 			zap.String("provider", string(providerType)))
-		if providerType == providers.ProviderPayment4 && h.metrics != nil {
-			h.metrics.OnPayment4VerificationFailure()
+		w.WriteHeader(http.StatusUnauthorized)
+		return
+	}
+	if h.security == nil {
+		h.logger.Warn("Webhook security policy unavailable", zap.String("provider", string(providerType)))
+		w.WriteHeader(http.StatusServiceUnavailable)
+		return
+	}
+	if err := h.security.Validate(ctx, providerType, headers, body, event); err != nil {
+		h.logger.Warn("Webhook security policy rejected request",
+			zap.String("provider", string(providerType)),
+			zap.String("reason", "freshness_or_replay"))
+		if errors.Is(err, errWebhookStore) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		if errors.Is(err, errWebhookReplay) {
+			w.WriteHeader(http.StatusOK)
+			return
 		}
 		w.WriteHeader(http.StatusUnauthorized)
 		return
@@ -180,31 +197,6 @@ func (h *WebhookHandler) handleWebhook(w http.ResponseWriter, r *http.Request, p
 		zap.String("provider_payment_id", event.ProviderPaymentID),
 		zap.String("order_id", event.OrderID),
 		zap.String("status", string(event.Status)))
-
-	if providerType == providers.ProviderPayment4 && h.metrics != nil {
-		h.metrics.OnPayment4Webhook(string(event.Status))
-	}
-
-	// Server-side verification for Payment4 — signature is optional, so we MUST
-	// confirm with Payment4's API that the payment actually exists and matches.
-	if providerType == providers.ProviderPayment4 && event.ProviderPaymentID != "" {
-		statusResp, verifyErr := provider.GetPaymentStatus(ctx, event.ProviderPaymentID)
-		if verifyErr != nil {
-			h.logger.Error("Payment4 server-side verification failed",
-				zap.Error(verifyErr),
-				zap.String("provider_payment_id", event.ProviderPaymentID))
-			w.WriteHeader(http.StatusBadGateway)
-			return
-		}
-		// Override webhook status with the server-verified status
-		event.Status = statusResp.Status
-		if statusResp.AmountCents > 0 {
-			event.AmountCents = statusResp.AmountCents
-		}
-		h.logger.Info("Payment4 server-side verification succeeded",
-			zap.String("provider_payment_id", event.ProviderPaymentID),
-			zap.String("verified_status", string(statusResp.Status)))
-	}
 
 	// Process the webhook event
 	if err := h.processWebhookEvent(ctx, event); err != nil {

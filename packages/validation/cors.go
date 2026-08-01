@@ -1,13 +1,40 @@
 package validation
 
 import (
+	"errors"
 	"fmt"
-	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"strconv"
 	"strings"
 )
+
+var errInvalidCORSConfig = errors.New("invalid CORS configuration")
+
+// ValidateCORSConfig rejects ambiguous or unsafe origin policy.
+func ValidateCORSConfig(config CORSConfig, production bool) error {
+	if config.AllowCredentials {
+		for _, origin := range config.AllowedOrigins {
+			if origin == "*" {
+				return fmt.Errorf("%w: credentialed wildcard origin", errInvalidCORSConfig)
+			}
+		}
+	}
+	for _, origin := range config.AllowedOrigins {
+		parsed, err := url.Parse(origin)
+		if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") ||
+			parsed.Hostname() == "" || parsed.Path != "" || parsed.RawQuery != "" ||
+			parsed.Fragment != "" || parsed.User != nil || parsed.Opaque != "" ||
+			strings.Contains(origin, "*") {
+			return fmt.Errorf("%w: malformed origin", errInvalidCORSConfig)
+		}
+	}
+	if production && len(config.AllowedOrigins) == 0 {
+		return fmt.Errorf("%w: production origins are required", errInvalidCORSConfig)
+	}
+	return nil
+}
 
 // ===========================================
 // CORS Middleware
@@ -84,8 +111,10 @@ func CORSConfigFromEnv() CORSConfig {
 		env := os.Getenv("ENVIRONMENT")
 		if env == "development" || env == "local" || env == "test" {
 			config.AllowedOrigins = []string{
-				"http://localhost:5173", // frontend
-				"http://localhost:8080", // gateway
+				"http://localhost:5173",
+				"http://127.0.0.1:5173",
+				"http://localhost:8080",
+				"http://127.0.0.1:8080",
 			}
 			// Auto-detect current Codespace for specific allowed origins.
 			// Post-consolidation the frontend is a single Vite server on 5173;
@@ -107,6 +136,29 @@ func CORSConfigFromEnv() CORSConfig {
 	return config
 }
 
+func corsConfigForContext(context string) CORSConfig {
+	config := CORSConfigFromEnv()
+	contextKeys := map[string]string{
+		"user":    "USER_CORS_ALLOWED_ORIGINS",
+		"admin":   "ADMIN_CORS_ALLOWED_ORIGINS",
+		"trade":   "TRADE_CORS_ALLOWED_ORIGINS",
+		"payment": "PAYMENT_CORS_ALLOWED_ORIGINS",
+	}
+	key := contextKeys[strings.ToLower(strings.TrimSpace(context))]
+	if origins := strings.TrimSpace(os.Getenv(key)); origins != "" {
+		config.AllowedOrigins = parseCommaSeparated(origins)
+	} else {
+		legacy := "USER_FRONTEND_ORIGIN"
+		if context == "admin" {
+			legacy = "ADMIN_FRONTEND_ORIGIN"
+		}
+		if origin := strings.TrimSpace(os.Getenv(legacy)); origin != "" {
+			config.AllowedOrigins = []string{origin}
+		}
+	}
+	return config
+}
+
 // parseCommaSeparated splits a comma-separated string into a slice.
 func parseCommaSeparated(s string) []string {
 	parts := strings.Split(s, ",")
@@ -122,6 +174,17 @@ func parseCommaSeparated(s string) []string {
 
 // CORSMiddleware creates CORS middleware with the given configuration.
 func CORSMiddleware(config CORSConfig) func(http.Handler) http.Handler {
+	production := func() bool {
+		env := strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT")))
+		return env == "" || env == "production" || env == "staging"
+	}()
+	if err := ValidateCORSConfig(config, production); err != nil {
+		return func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				WriteError(w, http.StatusServiceUnavailable, "EDGE_CONFIG_INVALID", "Request unavailable")
+			})
+		}
+	}
 	// Build sets for O(1) lookup
 	allowedOriginSet := make(map[string]bool)
 	for _, origin := range config.AllowedOrigins {
@@ -133,22 +196,9 @@ func CORSMiddleware(config CORSConfig) func(http.Handler) http.Handler {
 	allowHeaders := strings.Join(config.AllowedHeaders, ", ")
 	exposeHeaders := strings.Join(config.ExposedHeaders, ", ")
 
-	// Warn about insecure wildcard + credentials combination
-	hasWildcard := false
-	for _, origin := range config.AllowedOrigins {
-		if origin == "*" {
-			hasWildcard = true
-			break
-		}
-	}
-	if hasWildcard && config.AllowCredentials {
-		log.Println("[SECURITY WARNING] CORS: wildcard origin '*' combined with AllowCredentials=true " +
-			"allows any website to make credentialed requests. This is a security risk in production. " +
-			"Use explicit origins instead.")
-	}
-
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			appendVary(w.Header(), "Origin")
 			origin := r.Header.Get("Origin")
 
 			// Check if origin is allowed
@@ -165,8 +215,7 @@ func CORSMiddleware(config CORSConfig) func(http.Handler) http.Handler {
 						isAllowed = true
 						break
 					}
-					// Support wildcard subdomains: *.example.com or https://*.example.com
-					if MatchWildcardOrigin(origin, allowed) {
+					if !production && MatchWildcardOrigin(origin, allowed) {
 						isAllowed = true
 						break
 					}
@@ -188,15 +237,27 @@ func CORSMiddleware(config CORSConfig) func(http.Handler) http.Handler {
 				}
 			}
 
+			if origin != "" && !isAllowed {
+				WriteError(w, http.StatusForbidden, "CORS_ORIGIN_DENIED", "Cross-origin request denied")
+				return
+			}
+
 			// Handle preflight requests
 			if r.Method == http.MethodOptions {
-				if isAllowed {
-					w.Header().Set("Access-Control-Allow-Methods", allowMethods)
-					w.Header().Set("Access-Control-Allow-Headers", allowHeaders)
+				appendVary(w.Header(), "Access-Control-Request-Method")
+				appendVary(w.Header(), "Access-Control-Request-Headers")
+				requestedMethod := r.Header.Get("Access-Control-Request-Method")
+				requestedHeaders := r.Header.Values("Access-Control-Request-Headers")
+				if !isAllowed || !containsFold(config.AllowedMethods, requestedMethod) ||
+					!headersAllowed(config.AllowedHeaders, requestedHeaders) {
+					WriteError(w, http.StatusForbidden, "CORS_PREFLIGHT_DENIED", "Cross-origin request denied")
+					return
+				}
+				w.Header().Set("Access-Control-Allow-Methods", allowMethods)
+				w.Header().Set("Access-Control-Allow-Headers", allowHeaders)
 
-					if config.MaxAge > 0 {
-						w.Header().Set("Access-Control-Max-Age", strconv.Itoa(config.MaxAge))
-					}
+				if config.MaxAge > 0 {
+					w.Header().Set("Access-Control-Max-Age", strconv.Itoa(config.MaxAge))
 				}
 
 				// Return 204 No Content for preflight
@@ -209,20 +270,49 @@ func CORSMiddleware(config CORSConfig) func(http.Handler) http.Handler {
 	}
 }
 
+func appendVary(header http.Header, value string) {
+	for _, existing := range header.Values("Vary") {
+		for _, item := range strings.Split(existing, ",") {
+			if strings.EqualFold(strings.TrimSpace(item), value) {
+				return
+			}
+		}
+	}
+	header.Add("Vary", value)
+}
+
+func containsFold(values []string, wanted string) bool {
+	for _, value := range values {
+		if strings.EqualFold(value, strings.TrimSpace(wanted)) {
+			return true
+		}
+	}
+	return false
+}
+
+func headersAllowed(allowed []string, requested []string) bool {
+	for _, line := range requested {
+		for _, name := range strings.Split(line, ",") {
+			if strings.TrimSpace(name) != "" && !containsFold(allowed, name) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
 // ===========================================
 // Production CORS Configurations
 // ===========================================
 
 // UserBFFCORSConfig returns CORS configuration for user-bff.
 func UserBFFCORSConfig() CORSConfig {
-	config := CORSConfigFromEnv()
-	// user-bff specific headers if needed
-	return config
+	return corsConfigForContext("user")
 }
 
 // TradeBFFCORSConfig returns CORS configuration for trade-bff.
 func TradeBFFCORSConfig() CORSConfig {
-	config := CORSConfigFromEnv()
+	config := corsConfigForContext("trade")
 	// trade-bff needs WebSocket upgrade support
 	config.AllowedHeaders = append(config.AllowedHeaders,
 		"Sec-WebSocket-Key",
@@ -237,7 +327,7 @@ func TradeBFFCORSConfig() CORSConfig {
 
 // AdminBFFCORSConfig returns CORS configuration for admin-bff.
 func AdminBFFCORSConfig() CORSConfig {
-	config := CORSConfigFromEnv()
+	config := corsConfigForContext("admin")
 	// admin-bff can be more restrictive
 	// Only allow admin frontend origin in production (empty ENVIRONMENT = production)
 	if env := os.Getenv("ENVIRONMENT"); env != "development" && env != "local" && env != "test" {
@@ -246,4 +336,9 @@ func AdminBFFCORSConfig() CORSConfig {
 		}
 	}
 	return config
+}
+
+// PaymentServiceCORSConfig is intentionally separate from browser BFF policy.
+func PaymentServiceCORSConfig() CORSConfig {
+	return corsConfigForContext("payment")
 }

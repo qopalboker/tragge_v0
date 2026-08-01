@@ -22,6 +22,7 @@ import (
 	"github.com/Parsaeffatravesh/tragge/packages/observability"
 	pkgredis "github.com/Parsaeffatravesh/tragge/packages/redis"
 	"github.com/Parsaeffatravesh/tragge/packages/resilience/circuitbreaker"
+	"github.com/Parsaeffatravesh/tragge/packages/resilience/ratelimit"
 	"github.com/Parsaeffatravesh/tragge/packages/validation"
 	"github.com/Parsaeffatravesh/tragge/packages/wallet"
 	"github.com/Parsaeffatravesh/tragge/packages/wallet/exchangerate"
@@ -45,7 +46,6 @@ type App struct {
 	config       *Config
 	obs          *observability.Observability
 	exchangeRate *exchangerate.Service
-	metrics      *PaymentMetrics
 
 	// Handlers
 	depositHandler  *handlers.DepositHandler
@@ -57,6 +57,14 @@ type App struct {
 // Run starts the payment-service in standalone mode with its own resources.
 func Run() {
 	RunWithSharedDeps(nil, nil, nil, nil)
+}
+
+func registerPaymentWebhookRoutes(r chi.Router, nowPayments http.HandlerFunc) {
+	r.Route("/webhooks", func(r chi.Router) {
+		// Rate limit webhook endpoints: 60 concurrent requests to prevent abuse.
+		r.Use(middleware.Throttle(60))
+		r.Post("/nowpayments", nowPayments)
+	})
 }
 
 // RunWithSharedDeps starts the payment-service, optionally using shared resources.
@@ -73,6 +81,13 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	}
 
 	cfg := loadConfig()
+	edgeEnvironment, edgeErr := validation.LoadAndValidateEdgeEnvironment(os.Getenv)
+	if edgeErr != nil {
+		panic("invalid edge security configuration")
+	}
+	if edgeEnvironment.Production && (cfg.NowPaymentsIPNSecret == "" || len(cfg.JibitAllowedIPs) == 0) {
+		panic("production payment webhook authentication configuration is incomplete")
+	}
 
 	// Initialize observability
 	ctx := context.Background()
@@ -93,7 +108,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 
 	// Warn if webhook/callback URLs are not configured (required for payment processing)
 	if os.Getenv("WEBHOOK_BASE_URL") == "" {
-		log.Warn("WEBHOOK_BASE_URL is not set — crypto payment webhooks (NowPayments, Payment4) will not work")
+		log.Warn("WEBHOOK_BASE_URL is not set — NOWPayments webhooks will not work")
 	}
 	if cfg.JibitCallbackURL == "" && cfg.JibitAPIKey != "" {
 		log.Warn("JIBIT_CALLBACK_URL is not set but Jibit is configured — Jibit payment callbacks will not work")
@@ -101,9 +116,6 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	if os.Getenv("SUCCESS_REDIRECT_URL") == "" || os.Getenv("CANCEL_REDIRECT_URL") == "" {
 		log.Warn("SUCCESS_REDIRECT_URL or CANCEL_REDIRECT_URL is not set — payment redirect may fail")
 	}
-
-	// Initialize payment metrics
-	paymentMetrics := NewPaymentMetrics(obs.Metrics.Registry(), "payment_service")
 
 	// Initialize Sentry for error tracking
 	sentryDSN := os.Getenv("SENTRY_DSN")
@@ -257,20 +269,6 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		log.Info("Registered Jibit PPG provider")
 	}
 
-	// Register Payment4 provider
-	if cfg.Payment4APIKey != "" {
-		payment4 := providers.NewPayment4(providers.Payment4Config{
-			APIKey:     cfg.Payment4APIKey,
-			IPNSecret:  cfg.Payment4IPNSecret,
-			BaseURL:    cfg.Payment4BaseURL,
-			Sandbox:    cfg.Payment4Sandbox,
-			Circuit:    circuits.Payment4,
-			OnHTTPCall: paymentMetrics.ObserveHTTPCall,
-		})
-		providerRegistry.Register(payment4)
-		log.Info("Registered Payment4 provider", zap.Bool("sandbox", cfg.Payment4Sandbox))
-	}
-
 	// Initialize exchange rate service
 	exchangeRateSvc := exchangerate.NewService(exchangerate.Config{
 		NobitexBaseURL: cfg.ExchangeRateNobitexURL,
@@ -290,7 +288,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		SuccessRedirectURL: os.Getenv("SUCCESS_REDIRECT_URL"),
 		CancelRedirectURL:  os.Getenv("CANCEL_REDIRECT_URL"),
 	}
-	depositHandler := handlers.NewDepositHandler(pool.Primary(), providerRegistry, exchangeRateSvc, log.Logger, depositConfig, circuits, paymentMetrics)
+	depositHandler := handlers.NewDepositHandler(pool.Primary(), providerRegistry, exchangeRateSvc, log.Logger, depositConfig, circuits)
 
 	withdrawConfig := &handlers.WithdrawConfig{
 		MinWithdrawCents:           cfg.MinWithdrawCents,
@@ -324,7 +322,14 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		log.Info("RESEND_API_KEY not configured, deposit confirmation emails disabled")
 	}
 
-	webhookHandler := handlers.NewWebhookHandler(pool.Primary(), walletService, providerRegistry, emailNotifier, log.Logger, depositConfig.SuccessRedirectURL, depositConfig.CancelRedirectURL, circuits, paymentMetrics)
+	var webhookSecurity *handlers.WebhookSecurity
+	if redisClient != nil {
+		webhookSecurity, err = handlers.NewWebhookSecurity(redisClient.UniversalClient, getEnvDuration("PAYMENT_WEBHOOK_MAX_AGE", 5*time.Minute), edgeEnvironment.Production, time.Now)
+		if err != nil {
+			panic("invalid payment webhook replay configuration")
+		}
+	}
+	webhookHandler := handlers.NewWebhookHandler(pool.Primary(), walletService, providerRegistry, emailNotifier, log.Logger, depositConfig.SuccessRedirectURL, depositConfig.CancelRedirectURL, circuits, webhookSecurity)
 	historyHandler := handlers.NewHistoryHandler(pool.Primary(), kycService, log.Logger, circuits)
 
 	app := &App{
@@ -338,7 +343,6 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		config:          cfg,
 		obs:             obs,
 		exchangeRate:    exchangeRateSvc,
-		metrics:         paymentMetrics,
 		depositHandler:  depositHandler,
 		withdrawHandler: withdrawHandler,
 		webhookHandler:  webhookHandler,
@@ -353,7 +357,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		OrphanedAfter: cfg.CleanupOrphanedAfter,
 	})
 
-	// Start inquiry worker for stuck Jibit and Payment4 payments (BUG #305)
+	// Start inquiry worker for stuck Jibit payments (BUG #305)
 	inquiryCtx, inquiryCancel := context.WithCancel(context.Background())
 	defer inquiryCancel()
 	go StartInquiryWorker(inquiryCtx, pool.Primary(), circuits, providerRegistry, walletService, log.Logger, InquiryConfig{
@@ -391,18 +395,27 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		Repanic: true, // Re-panic after capture so sanitized recovery handles it
 	})
 
+	var edgeRedis redis.UniversalClient
+	if redisClient != nil {
+		edgeRedis = redisClient.UniversalClient
+	}
+	edgePolicy := ratelimit.NewPolicyMiddleware(edgeRedis, ratelimit.PoliciesForService("payment"), nil, func(class ratelimit.EndpointClass, reason string) {
+		log.Warn("Edge security request denied", zap.String("policy_class", string(class)), zap.String("reason", reason))
+	})
+
 	// Middleware stack
-	r.Use(middleware.RealIP)
 	r.Use(validation.RequestIDMiddleware)
-	r.Use(validation.CORSMiddleware(validation.DefaultCORSConfig()))
+	r.Use(validation.CORSMiddleware(validation.PaymentServiceCORSConfig()))
 	r.Use(validation.SecurityHeadersMiddleware)
+	r.Use(edgePolicy.Handler)
 	r.Use(auth.RedactSecurityCredentialsForTelemetry)
 	r.Use(obs.Middleware.Middleware)
 	r.Use(sentryHandler.Handle) // Sentry panic capture
 	r.Use(auth.RestoreSecurityCredentialsAfterTelemetry)
 	r.Use(obs.Middleware.Recovery)
 	r.Use(middleware.Timeout(30 * time.Second))
-	r.Use(validation.MaxBytesMiddleware(1 * 1024 * 1024)) // 1MB max body
+	r.Use(validation.MaxBytesMiddleware(edgeEnvironment.DefaultBodyBytes))
+	r.Use(validation.ContentTypeMiddleware)
 
 	// Health check endpoints
 	r.Get("/healthz", app.handleHealthz)
@@ -413,12 +426,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	})
 
 	// Webhook endpoints (public - no auth required)
-	r.Route("/webhooks", func(r chi.Router) {
-		// Rate limit webhook endpoints: 60 concurrent requests to prevent abuse
-		r.Use(middleware.Throttle(60))
-		r.Post("/nowpayments", webhookHandler.HandleNowPaymentsWebhook)
-		r.Post("/payment4", webhookHandler.HandlePayment4Webhook)
-	})
+	registerPaymentWebhookRoutes(r, webhookHandler.HandleNowPaymentsWebhook)
 
 	// Jibit callback endpoint (public - for redirects after payment).
 	// Jibit only has a single callbackUrl per purchase; the callback handler
@@ -432,6 +440,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	// API routes (protected)
 	r.Route("/api/payments", func(r chi.Router) {
 		r.Use(app.authMiddleware)
+		r.Use(edgePolicy.ActorHandler)
 
 		// Deposit endpoints
 		r.Post("/deposit/crypto/create", depositHandler.HandleCreateCryptoDeposit)
@@ -453,16 +462,19 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	// Wallet endpoint (protected)
 	r.Route("/api/wallet", func(r chi.Router) {
 		r.Use(app.authMiddleware)
+		r.Use(edgePolicy.ActorHandler)
 		r.Get("/", historyHandler.HandleGetWallet)
 	})
 
 	// Create server
 	srv := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              ":" + cfg.Port,
+		Handler:           r,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    edgeEnvironment.MaxHeaderBytes,
 	}
 
 	// Start server
