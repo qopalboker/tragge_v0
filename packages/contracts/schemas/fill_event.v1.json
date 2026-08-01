@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tragge.io/schemas/fill_event.v1.json",
+  "title": "FillEvent",
+  "description": "Order fill execution event",
+  "type": "object",
+  "required": ["fill_id", "order_id", "user_id", "contest_id", "symbol", "side", "qty", "fill_price", "ts"],
+  "additionalProperties": false,
+  "properties": {
+    "fill_id": {
+      "type": "string",
+      "description": "Unique fill identifier"
+    },
+    "order_id": {
+      "type": "string",
+      "description": "Parent order identifier"
+    },
+    "user_id": {
+      "type": "string",
+      "description": "User identifier"
+    },
+    "contest_id": {
+      "type": "string",
+      "description": "Contest identifier"
+    },
+    "symbol": {
+      "type": "string",
+      "description": "Trading symbol"
+    },
+    "side": {
+      "type": "string",
+      "enum": ["BUY", "SELL"],
+      "description": "Fill side"
+    },
+    "qty": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Filled quantity"
+    },
+    "fill_price": {
+      "type": "number",
+      "description": "Execution price"
+    },
+    "ts": {
+      "type": "integer",
+      "description": "Fill timestamp in milliseconds"
+    }
+  }
+}

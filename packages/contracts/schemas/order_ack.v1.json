@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tragge.io/schemas/order_ack.v1.json",
+  "title": "OrderAck",
+  "description": "Acknowledgment response for an order request",
+  "type": "object",
+  "required": ["order_id", "status"],
+  "additionalProperties": false,
+  "properties": {
+    "order_id": {
+      "type": "string",
+      "description": "Order identifier being acknowledged"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["ACCEPTED", "REJECTED"],
+      "description": "Order acceptance status"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Rejection reason (present when status is REJECTED)"
+    }
+  }
+}

@@ -1,0 +1,2 @@
+-- 0057_withdraw_fee_and_expired_status.down.sql
+-- PostgreSQL cannot remove enum values; down migration is a no-op.

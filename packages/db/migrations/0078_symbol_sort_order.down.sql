@@ -1,0 +1,1 @@
+ALTER TABLE symbols DROP COLUMN IF EXISTS sort_order;

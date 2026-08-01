@@ -1,0 +1,139 @@
+# Redis StatefulSet for Tragge Trading Platform
+#
+# Uses StatefulSet with PVC for data persistence across pod restarts.
+# For production high-availability, consider using Redis Sentinel (redis-sentinel.yaml).
+#
+# IMPORTANT: This is a single-instance Redis for development/staging.
+# For production HA, enable redis-sentinel.yaml in kustomization.yaml instead.
+#
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: cache
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  serviceName: redis
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/component: cache
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 999
+        runAsGroup: 999
+        fsGroup: 999
+      terminationGracePeriodSeconds: 30
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports:
+            - containerPort: 6379
+              name: redis
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: tragge-secrets
+                  key: REDIS_PASSWORD
+          command:
+            - /bin/sh
+            - -c
+            - >-
+              redis-server
+              --requirepass "$(REDIS_PASSWORD)"
+              --appendonly yes
+              --appendfsync everysec
+              --maxmemory 256mb
+              --maxmemory-policy allkeys-lru
+              --dir /data
+              --save "900 1"
+              --save "300 10"
+              --save "60 10000"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          startupProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning ping
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: redis-data
+              mountPath: /data
+          lifecycle:
+            preStop:
+              exec:
+                # Gracefully save data before shutdown
+                command:
+                  - /bin/sh
+                  - -c
+                  - redis-cli -a "$REDIS_PASSWORD" --no-auth-warning BGSAVE && sleep 5
+  volumeClaimTemplates:
+    - metadata:
+        name: redis-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 5Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+  selector:
+    app.kubernetes.io/name: redis

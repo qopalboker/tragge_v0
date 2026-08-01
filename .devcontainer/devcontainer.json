@@ -1,0 +1,25 @@
+{
+  "name": "Tragge Dev",
+  "forwardPorts": [
+    5173,
+    8080,
+    8081,
+    8082,
+    8083,
+    8084,
+    8085,
+    8086,
+    9092
+  ],
+  "portsAttributes": {
+    "5173": { "label": "Frontend (user/trade/admin)", "onAutoForward": "notify", "visibility": "public" },
+    "8080": { "label": "Gateway", "onAutoForward": "notify" },
+    "8081": { "label": "User BFF", "onAutoForward": "silent" },
+    "8082": { "label": "Trade BFF", "onAutoForward": "silent" },
+    "8083": { "label": "Admin BFF", "onAutoForward": "silent" },
+    "8084": { "label": "Market Ingestor", "onAutoForward": "silent" },
+    "8085": { "label": "Trading Engine", "onAutoForward": "silent" },
+    "8086": { "label": "Leaderboard Worker", "onAutoForward": "silent" },
+    "9092": { "label": "Redpanda", "onAutoForward": "ignore" }
+  }
+}

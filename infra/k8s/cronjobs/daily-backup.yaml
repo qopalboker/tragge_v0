@@ -1,0 +1,531 @@
+# Daily Backup CronJobs for tragge Trading Platform
+# This configuration creates automated daily backups of PostgreSQL and Redis
+# to S3 with encryption and retention policies.
+---
+# ConfigMap for backup scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-scripts
+  namespace: tragge
+  labels:
+    app: backup-system
+data:
+  backup-postgres.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] Starting PostgreSQL backup..."
+
+    TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+    BACKUP_FILE="/tmp/postgres_${POSTGRES_DB}_full_${TIMESTAMP}.sql.gz"
+    S3_KEY="${S3_PREFIX}/postgres_${POSTGRES_DB}_full_${TIMESTAMP}.sql.gz"
+
+    export PGPASSWORD="$POSTGRES_PASSWORD"
+
+    # Test connection
+    if ! pg_isready -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -t 30; then
+        echo "ERROR: Cannot connect to PostgreSQL"
+        exit 1
+    fi
+
+    # Create backup
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] Creating backup..."
+    pg_dump -h "$POSTGRES_HOST" -p "$POSTGRES_PORT" -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+        --no-owner --no-acl --large-objects | gzip -9 > "$BACKUP_FILE"
+
+    BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] Backup created: $BACKUP_SIZE"
+
+    # Upload to S3
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] Uploading to S3..."
+    aws s3 cp "$BACKUP_FILE" "s3://${S3_BUCKET}/${S3_KEY}" \
+        --sse AES256 \
+        --storage-class STANDARD_IA \
+        --metadata "backup-type=full,database=${POSTGRES_DB},timestamp=${TIMESTAMP}"
+
+    # Tag with retention
+    aws s3api put-object-tagging \
+        --bucket "$S3_BUCKET" \
+        --key "$S3_KEY" \
+        --tagging "TagSet=[{Key=RetentionDays,Value=${RETENTION_DAYS}},{Key=BackupType,Value=postgres}]"
+
+    # Write manifest
+    cat > /tmp/manifest.json <<EOF
+    {
+        "timestamp": "${TIMESTAMP}",
+        "type": "full",
+        "database": "${POSTGRES_DB}",
+        "backup_file": "${S3_KEY}",
+        "retention_days": ${RETENTION_DAYS},
+        "created_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    }
+    EOF
+    aws s3 cp /tmp/manifest.json "s3://${S3_BUCKET}/${S3_PREFIX}/latest_full.json" \
+        --content-type "application/json"
+
+    # Cleanup local file
+    rm -f "$BACKUP_FILE" /tmp/manifest.json
+
+    # Cleanup old backups
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] Cleaning up old backups..."
+    CUTOFF=$(date -d "-${RETENTION_DAYS} days" '+%Y-%m-%d' 2>/dev/null || date -v-${RETENTION_DAYS}d '+%Y-%m-%d')
+    aws s3 ls "s3://${S3_BUCKET}/${S3_PREFIX}/" | while read -r DATE TIME SIZE KEY; do
+        if [[ "$DATE" < "$CUTOFF" && "$KEY" == postgres_* ]]; then
+            aws s3 rm "s3://${S3_BUCKET}/${S3_PREFIX}/${KEY}" && echo "Deleted: $KEY"
+        fi
+    done
+
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] PostgreSQL backup completed successfully!"
+
+  backup-redis.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] Starting Redis backup..."
+
+    TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+    BACKUP_FILE="/tmp/redis_${TIMESTAMP}.rdb.gz"
+    S3_KEY="${S3_PREFIX}/redis_${TIMESTAMP}.rdb.gz"
+
+    # Build redis-cli command
+    REDIS_CLI="redis-cli -h $REDIS_HOST -p $REDIS_PORT"
+    if [[ -n "${REDIS_PASSWORD:-}" ]]; then
+        REDIS_CLI="$REDIS_CLI -a $REDIS_PASSWORD --no-auth-warning"
+    fi
+
+    # Test connection
+    if ! $REDIS_CLI PING | grep -q PONG; then
+        echo "ERROR: Cannot connect to Redis"
+        exit 1
+    fi
+
+    # Get last save time
+    LAST_SAVE=$($REDIS_CLI LASTSAVE)
+
+    # Trigger BGSAVE
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] Triggering BGSAVE..."
+    $REDIS_CLI BGSAVE
+
+    # Wait for BGSAVE to complete
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] Waiting for BGSAVE to complete..."
+    for i in $(seq 1 60); do
+        NEW_SAVE=$($REDIS_CLI LASTSAVE)
+        if [[ "$NEW_SAVE" -gt "$LAST_SAVE" ]]; then
+            echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] BGSAVE completed"
+            break
+        fi
+        sleep 5
+    done
+
+    # Copy RDB file (assumes mounted volume or kubectl cp)
+    if [[ -f "$REDIS_RDB_PATH" ]]; then
+        gzip -c "$REDIS_RDB_PATH" > "$BACKUP_FILE"
+    else
+        # Fallback: try kubectl cp if running in K8s
+        if [[ -n "${REDIS_POD:-}" ]]; then
+            kubectl cp "${REDIS_NAMESPACE:-default}/${REDIS_POD}:${REDIS_RDB_PATH}" /tmp/dump.rdb
+            gzip -c /tmp/dump.rdb > "$BACKUP_FILE"
+            rm -f /tmp/dump.rdb
+        else
+            echo "ERROR: Cannot access RDB file"
+            exit 1
+        fi
+    fi
+
+    BACKUP_SIZE=$(du -h "$BACKUP_FILE" | cut -f1)
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] Backup created: $BACKUP_SIZE"
+
+    # Upload to S3
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] Uploading to S3..."
+    aws s3 cp "$BACKUP_FILE" "s3://${S3_BUCKET}/${S3_KEY}" \
+        --sse AES256 \
+        --storage-class STANDARD_IA \
+        --metadata "backup-type=redis-rdb,timestamp=${TIMESTAMP}"
+
+    # Tag with retention
+    aws s3api put-object-tagging \
+        --bucket "$S3_BUCKET" \
+        --key "$S3_KEY" \
+        --tagging "TagSet=[{Key=RetentionDays,Value=${RETENTION_DAYS}},{Key=BackupType,Value=redis}]"
+
+    # Write manifest
+    DBSIZE=$($REDIS_CLI DBSIZE | grep -oE '[0-9]+' || echo "unknown")
+    cat > /tmp/manifest.json <<EOF
+    {
+        "timestamp": "${TIMESTAMP}",
+        "type": "redis-rdb",
+        "backup_file": "${S3_KEY}",
+        "retention_days": ${RETENTION_DAYS},
+        "keys_count": "${DBSIZE}",
+        "created_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    }
+    EOF
+    aws s3 cp /tmp/manifest.json "s3://${S3_BUCKET}/${S3_PREFIX}/latest.json" \
+        --content-type "application/json"
+
+    # Cleanup local files
+    rm -f "$BACKUP_FILE" /tmp/manifest.json
+
+    # Cleanup old backups
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] Cleaning up old backups..."
+    CUTOFF=$(date -d "-${RETENTION_DAYS} days" '+%Y-%m-%d' 2>/dev/null || date -v-${RETENTION_DAYS}d '+%Y-%m-%d')
+    aws s3 ls "s3://${S3_BUCKET}/${S3_PREFIX}/" | while read -r DATE TIME SIZE KEY; do
+        if [[ "$DATE" < "$CUTOFF" && "$KEY" == redis_* ]]; then
+            aws s3 rm "s3://${S3_BUCKET}/${S3_PREFIX}/${KEY}" && echo "Deleted: $KEY"
+        fi
+    done
+
+    echo "[$(date -u '+%Y-%m-%d %H:%M:%S')] Redis backup completed successfully!"
+
+---
+# ExternalSecret for backup credentials
+# AWS credentials are handled via IRSA (see ServiceAccount annotation below)
+# Database passwords are synced from the external secret manager
+apiVersion: external-secrets.io/v1beta1
+kind: ExternalSecret
+metadata:
+  name: backup-secrets
+  namespace: tragge
+  labels:
+    app: backup-system
+spec:
+  refreshInterval: 1h
+  secretStoreRef:
+    name: tragge-secret-store
+    kind: ClusterSecretStore
+  target:
+    name: backup-secrets
+  data:
+    - secretKey: POSTGRES_PASSWORD
+      remoteRef:
+        key: tragge/backup
+        property: POSTGRES_PASSWORD
+    - secretKey: REDIS_PASSWORD
+      remoteRef:
+        key: tragge/backup
+        property: REDIS_PASSWORD
+
+---
+# ConfigMap for backup configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-config
+  namespace: tragge
+  labels:
+    app: backup-system
+data:
+  # S3 Configuration
+  S3_BUCKET: "tragge-backups"
+  AWS_REGION: "us-east-1"
+
+  # PostgreSQL Configuration
+  POSTGRES_HOST: "postgres"
+  POSTGRES_PORT: "5432"
+  POSTGRES_S3_PREFIX: "backups/postgres"
+
+  # Redis Configuration
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  REDIS_RDB_PATH: "/data/dump.rdb"
+  REDIS_S3_PREFIX: "backups/redis"
+
+  # Retention Configuration
+  RETENTION_DAYS: "30"
+
+---
+# PostgreSQL Daily Backup CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-daily-backup
+  namespace: tragge
+  labels:
+    app: backup-system
+    component: postgres-backup
+spec:
+  # Run daily at 3:00 AM UTC
+  schedule: "0 3 * * *"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 3600
+      template:
+        metadata:
+          labels:
+            app: backup-system
+            component: postgres-backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: backup-service-account
+          containers:
+          - name: backup
+            # Built from infra/docker/Dockerfile.backup — includes pg_dump, redis-cli, and AWS CLI v2.
+            # alpine repos do not have aws-cli, so a custom image is required.
+            image: ghcr.io/parsaeffatravesh/tragge/backup-tools:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              /scripts/backup-postgres.sh
+            env:
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: POSTGRES_PORT
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secrets
+                  key: POSTGRES_DB
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secrets
+                  key: POSTGRES_APP_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: POSTGRES_PASSWORD
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: S3_BUCKET
+            - name: S3_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: POSTGRES_S3_PREFIX
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: AWS_REGION
+            - name: RETENTION_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: RETENTION_DAYS
+            # AWS credentials provided via IRSA (ServiceAccount annotation)
+            volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+          volumes:
+          - name: scripts
+            configMap:
+              name: backup-scripts
+              defaultMode: 0755
+
+---
+# Redis Daily Backup CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: redis-daily-backup
+  namespace: tragge
+  labels:
+    app: backup-system
+    component: redis-backup
+spec:
+  # Run daily at 3:30 AM UTC (30 minutes after PostgreSQL)
+  schedule: "30 3 * * *"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 3
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            app: backup-system
+            component: redis-backup
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: backup-service-account
+          containers:
+          - name: backup
+            # Built from infra/docker/Dockerfile.backup — includes pg_dump, redis-cli, and AWS CLI v2.
+            # alpine repos do not have aws-cli, so a custom image is required.
+            image: ghcr.io/parsaeffatravesh/tragge/backup-tools:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              /scripts/backup-redis.sh
+            env:
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: REDIS_PORT
+            - name: REDIS_RDB_PATH
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: REDIS_RDB_PATH
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: REDIS_PASSWORD
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: S3_BUCKET
+            - name: S3_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: REDIS_S3_PREFIX
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: AWS_REGION
+            - name: RETENTION_DAYS
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: RETENTION_DAYS
+            # AWS credentials provided via IRSA (ServiceAccount annotation)
+            - name: REDIS_POD
+              value: "redis-0"
+            - name: REDIS_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            - name: redis-data
+              mountPath: /data
+              readOnly: true
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                cpu: 200m
+                memory: 512Mi
+          volumes:
+          - name: scripts
+            configMap:
+              name: backup-scripts
+              defaultMode: 0755
+          - name: redis-data
+            persistentVolumeClaim:
+              claimName: redis-data
+              readOnly: true
+
+---
+# Service Account for backup jobs
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: backup-service-account
+  namespace: tragge
+  labels:
+    app: backup-system
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::ACCOUNT_ID:role/tragge-backup-role
+
+---
+# RBAC for kubectl access (for copying files from Redis pod)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: backup-role
+  namespace: tragge
+rules:
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+- apiGroups: [""]
+  resources: ["pods/exec"]
+  verbs: ["create"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: backup-role-binding
+  namespace: tragge
+subjects:
+- kind: ServiceAccount
+  name: backup-service-account
+  namespace: tragge
+roleRef:
+  kind: Role
+  name: backup-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# S3 Bucket Lifecycle Policy (apply via AWS CLI or Terraform)
+# This is a reference configuration - apply using:
+# aws s3api put-bucket-lifecycle-configuration --bucket tragge-backups --lifecycle-configuration file://lifecycle.json
+#
+# lifecycle.json:
+# {
+#     "Rules": [
+#         {
+#             "ID": "BackupRetention30Days",
+#             "Status": "Enabled",
+#             "Filter": {
+#                 "Tag": {
+#                     "Key": "RetentionDays",
+#                     "Value": "30"
+#                 }
+#             },
+#             "Expiration": {
+#                 "Days": 30
+#             }
+#         },
+#         {
+#             "ID": "MoveToGlacierAfter90Days",
+#             "Status": "Enabled",
+#             "Filter": {
+#                 "Prefix": "backups/"
+#             },
+#             "Transitions": [
+#                 {
+#                     "Days": 90,
+#                     "StorageClass": "GLACIER"
+#                 }
+#             ],
+#             "Expiration": {
+#                 "Days": 365
+#             }
+#         }
+#     ]
+# }

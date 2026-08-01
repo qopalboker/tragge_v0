@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contest Cancelled - Refund Issued</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+    <div style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #6b7280 0%, #4b5563 100%); padding: 30px; text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 10px;">&#128683;</div>
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Contest Cancelled</h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 14px;">Refund Issued</p>
+        </div>
+
+        <!-- Content -->
+        <div style="padding: 30px;">
+            <p style="color: #333; margin-top: 0;">Hello{{if .UserName}} {{.UserName}}{{end}},</p>
+
+            <p style="color: #333;">We're sorry to inform you that the following contest has been cancelled:</p>
+
+            <!-- Contest Details -->
+            <div style="background-color: #f8f9fa; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                <h3 style="margin: 0 0 15px 0; color: #333; font-size: 16px;">{{.ContestName}}</h3>
+
+                <table style="width: 100%; border-collapse: collapse;">
+                    {{if .ScheduledStart}}
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; border-bottom: 1px solid #e9ecef;">Originally Scheduled</td>
+                        <td style="padding: 8px 0; color: #333; text-align: right; border-bottom: 1px solid #e9ecef;">{{.ScheduledStart}}</td>
+                    </tr>
+                    {{end}}
+                    <tr>
+                        <td style="padding: 8px 0; color: #666;">Cancellation Reason</td>
+                        <td style="padding: 8px 0; color: #333; text-align: right;">{{.Reason}}</td>
+                    </tr>
+                </table>
+            </div>
+
+            {{if .RefundAmount}}
+            <!-- Refund Details -->
+            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                <h3 style="margin: 0 0 15px 0; color: #166534; font-size: 16px;">&#9989; Refund Processed</h3>
+
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; border-bottom: 1px solid #dcfce7;">Refund Amount</td>
+                        <td style="padding: 8px 0; color: #166534; font-weight: bold; text-align: right; border-bottom: 1px solid #dcfce7;">{{.RefundAmount}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666;">New Wallet Balance</td>
+                        <td style="padding: 8px 0; color: #333; font-weight: bold; text-align: right;">{{.NewBalance}}</td>
+                    </tr>
+                </table>
+
+                <p style="color: #166534; font-size: 14px; margin: 15px 0 0 0;">Your entry fee has been automatically refunded to your wallet.</p>
+            </div>
+            {{end}}
+
+            <p style="color: #333;">We apologize for any inconvenience this may have caused. We invite you to explore other contests and join one that suits you.</p>
+
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{{.ContestsURL}}" style="display: inline-block; background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 14px 30px; border-radius: 6px; font-weight: 500;">Browse Other Contests</a>
+            </div>
+
+            <p style="color: #333; margin-bottom: 0;">Thank you for your understanding.</p>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #e9ecef;">
+            <p style="color: #999; font-size: 12px; margin: 0 0 10px 0;">
+                This email was sent by <strong>Tragge</strong> regarding a contest cancellation.
+            </p>
+            <p style="color: #999; font-size: 12px; margin: 0;">
+                If you have any questions, please contact our support team.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

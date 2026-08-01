@@ -1,0 +1,106 @@
+# === SECRETS — NEVER COMMIT ===
+.env
+.env.*
+!.env.example
+.db_credentials
+infra/docker/secrets/*
+!infra/docker/secrets/README.md
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Node / Frontend
+node_modules/
+dist/
+coverage/
+.turbo/
+.pnpm-store/
+
+# Go
+go.work.sum
+.codex-cache/
+.tmp/
+*.exe
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+*.coverage
+*.coverprofile
+coverage.txt
+coverage.html
+
+# Local credentials, keys, and database files
+*.pem
+*.key
+*.p12
+*.pfx
+*.jks
+*.sqlite
+*.sqlite3
+*.db
+provider-payloads/
+*.provider-payload.json
+
+# Go service binaries
+apps/admin-bff/admin-bff
+apps/contest-scheduler/contest-scheduler
+apps/free-contest-generator/free-contest-generator
+apps/leaderboard-worker/leaderboard-worker
+apps/market-ingestor/market-ingestor
+apps/payment-service/payment-service
+apps/settlement-service/settlement-service
+apps/shard-router/shard-router
+
+apps/trade-bff/trade-bff
+apps/trading-engine/trading-engine
+apps/user-bff/user-bff
+apps/api-server/api-server
+apps/worker/worker
+apps/trading-core/trading-core
+
+# Tool binaries
+tools/chaos-test/chaos-test
+tools/finalization-load-test/finalization-load-test
+tools/leaderboard-load-test/leaderboard-load-test
+tools/order-burst-test/order-burst-test
+tools/order-load-test/order-load-test
+
+tools/shard-load-test/shard-load-test
+tools/ws-load-test/ws-load-test
+
+# Test & E2E artifacts
+test-results/
+playwright-report/
+.auth/
+
+# Root-level Go binaries
+/admin-bff
+/free-contest-generator
+/leaderboard-worker
+/market-ingestor
+/settlement-service
+/shard-router
+/trade-bff
+/trading-engine
+/user-bff
+/contest-scheduler
+/payment-service
+/api-server
+/worker
+/trading-core
+
+# Claude Code local config (per-developer; never ship)
+.claude/

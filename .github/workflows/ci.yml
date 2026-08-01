@@ -1,0 +1,88 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ---- Change detection ----
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      go: ${{ steps.filter.outputs.go }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+      infra: ${{ steps.filter.outputs.infra }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            go:
+              - 'apps/**/**.go'
+              - 'packages/**/**.go'
+              - 'go.work'
+              - '**/go.mod'
+              - '**/go.sum'
+            frontend:
+              - 'apps/user-frontend/**'
+              - 'apps/admin-frontend/**'
+              - 'packages/contracts/ts/**'
+              - 'packages/frontend-shared/**'
+            infra:
+              - 'infra/**'
+              - '**/Dockerfile'
+              - 'docker-compose*.yml'
+
+  # ---- Go jobs (skipped if no Go changes) ----
+  lint-and-test-go:
+    name: Go (lint, test, build)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.go == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          cache: true
+          cache-dependency-path: "**/go.sum"
+      - name: Install golangci-lint
+        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin
+      - name: Lint
+        run: |
+          for dir in $(grep '^\s*\./' go.work | tr -d '\t '); do
+            echo "Linting $dir..."
+            (cd "$dir" && golangci-lint run --timeout 5m ./...) || exit 1
+          done
+      - name: Test
+        run: go test -race -count=1 ./packages/... ./apps/...
+      - name: Build
+        run: |
+          go build ./apps/api-server/... &
+          go build ./apps/trading-core/... &
+          go build ./apps/worker/... &
+          wait
+
+  # ---- Frontend jobs (skipped if no frontend changes) ----
+  lint-and-test-frontend:
+    name: Frontend (lint, test, build)
+    needs: detect-changes
+    if: needs.detect-changes.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v2
+        with:
+          version: 8
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "pnpm"
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @tragge/user-frontend lint
+      - run: pnpm --filter @tragge/admin-frontend lint
+      - run: pnpm --filter @tragge/user-frontend build
+      - run: pnpm --filter @tragge/admin-frontend build

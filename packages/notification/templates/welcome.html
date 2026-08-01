@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="{{if eq .Lang "fa"}}fa{{else}}en{{end}}" dir="{{if eq .Lang "fa"}}rtl{{else}}ltr{{end}}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{if eq .Lang "fa"}}به Tragge خوش آمدید{{else}}Welcome to Tragge{{end}}</title>
+</head>
+<body style="font-family: {{if eq .Lang "fa"}}Tahoma, 'Segoe UI', Arial{{else}}-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial{{end}}, sans-serif; line-height: 1.8; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5; direction: {{if eq .Lang "fa"}}rtl{{else}}ltr{{end}};">
+    <div style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%); padding: 40px 30px; text-align: center;">
+            <div style="font-size: 56px; margin-bottom: 15px;">&#127942;</div>
+            <h1 style="color: #ffffff; margin: 0; font-size: 28px; font-weight: 600;">
+                {{if eq .Lang "fa"}}به Tragge خوش آمدید!{{else}}Welcome to Tragge!{{end}}
+            </h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px;">
+                {{if eq .Lang "fa"}}پلتفرم مسابقات معاملاتی{{else}}Trading Tournament Platform{{end}}
+            </p>
+        </div>
+
+        <!-- Content -->
+        <div style="padding: 35px 30px;">
+            <p style="color: #333; margin-top: 0; font-size: 16px;">
+                {{if eq .Lang "fa"}}سلام{{if .UserEmail}} {{.UserEmail}}{{end}}،{{else}}Hello{{if .UserEmail}} {{.UserEmail}}{{end}},{{end}}
+            </p>
+
+            <p style="color: #333; font-size: 16px;">
+                {{if eq .Lang "fa"}}از ثبت‌نام شما در Tragge سپاسگزاریم! شما اکنون به جامعه‌ای از معامله‌گران ماهر پیوسته‌اید که در مسابقات معاملاتی هیجان‌انگیز شرکت می‌کنند.{{else}}Thank you for joining Tragge! You've just joined a community of skilled traders competing in exciting trading tournaments.{{end}}
+            </p>
+
+            {{if .VerificationCode}}
+            <!-- Email Verification Section -->
+            <div style="background-color: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 20px; margin: 25px 0;">
+                <p style="color: #1e40af; margin: 0 0 15px 0; font-weight: 500; font-size: 15px;">
+                    {{if eq .Lang "fa"}}&#128274; لطفاً با وارد کردن کد زیر ایمیل خود را تأیید کنید{{else}}&#128274; Enter this code to verify your email{{end}}
+                </p>
+                <div style="text-align: center;">
+                    <div style="display: inline-block; background-color: #ffffff; border: 2px dashed #2563eb; border-radius: 12px; padding: 16px 28px;">
+                        <span style="font-family: 'SF Mono', 'Fira Code', 'Courier New', monospace; font-size: 32px; font-weight: 700; letter-spacing: 10px; color: #1e293b;">{{.VerificationCode}}</span>
+                    </div>
+                </div>
+                <p style="color: #6b7280; font-size: 13px; margin: 15px 0 0 0; text-align: center;">
+                    {{if eq .Lang "fa"}}این کد ۱۰ دقیقه اعتبار دارد{{else}}This code expires in 10 minutes{{end}}
+                </p>
+            </div>
+            {{end}}
+
+            <!-- What You Can Do Section -->
+            <div style="margin: 30px 0;">
+                <h2 style="color: #1f2937; font-size: 18px; margin: 0 0 20px 0; font-weight: 600;">
+                    {{if eq .Lang "fa"}}امکانات Tragge:{{else}}What you can do with Tragge:{{end}}
+                </h2>
+
+                <div style="display: table; width: 100%; margin-bottom: 15px;">
+                    <div style="display: table-cell; width: 40px; vertical-align: top; font-size: 24px; {{if eq .Lang "fa"}}padding-left: 12px;{{else}}padding-right: 12px;{{end}}">&#128200;</div>
+                    <div style="display: table-cell; vertical-align: top;">
+                        <strong style="color: #1f2937;">{{if eq .Lang "fa"}}شرکت در مسابقات{{else}}Compete in Tournaments{{end}}</strong>
+                        <p style="color: #6b7280; margin: 5px 0 0 0; font-size: 14px;">
+                            {{if eq .Lang "fa"}}در مسابقات معاملاتی متنوع شرکت کنید و برای جایزه رقابت کنید{{else}}Join various trading contests and compete for prizes{{end}}
+                        </p>
+                    </div>
+                </div>
+
+                <div style="display: table; width: 100%; margin-bottom: 15px;">
+                    <div style="display: table-cell; width: 40px; vertical-align: top; font-size: 24px; {{if eq .Lang "fa"}}padding-left: 12px;{{else}}padding-right: 12px;{{end}}">&#128176;</div>
+                    <div style="display: table-cell; vertical-align: top;">
+                        <strong style="color: #1f2937;">{{if eq .Lang "fa"}}معامله بدون ریسک{{else}}Trade Risk-Free{{end}}</strong>
+                        <p style="color: #6b7280; margin: 5px 0 0 0; font-size: 14px;">
+                            {{if eq .Lang "fa"}}استراتژی‌های خود را با سرمایه مجازی آزمایش کنید{{else}}Practice your strategies with virtual capital{{end}}
+                        </p>
+                    </div>
+                </div>
+
+                <div style="display: table; width: 100%; margin-bottom: 15px;">
+                    <div style="display: table-cell; width: 40px; vertical-align: top; font-size: 24px; {{if eq .Lang "fa"}}padding-left: 12px;{{else}}padding-right: 12px;{{end}}">&#127919;</div>
+                    <div style="display: table-cell; vertical-align: top;">
+                        <strong style="color: #1f2937;">{{if eq .Lang "fa"}}جدول امتیازات{{else}}Leaderboards{{end}}</strong>
+                        <p style="color: #6b7280; margin: 5px 0 0 0; font-size: 14px;">
+                            {{if eq .Lang "fa"}}رتبه خود را در بین معامله‌گران دیگر مشاهده کنید{{else}}Track your ranking among other traders{{end}}
+                        </p>
+                    </div>
+                </div>
+
+                <div style="display: table; width: 100%;">
+                    <div style="display: table-cell; width: 40px; vertical-align: top; font-size: 24px; {{if eq .Lang "fa"}}padding-left: 12px;{{else}}padding-right: 12px;{{end}}">&#128640;</div>
+                    <div style="display: table-cell; vertical-align: top;">
+                        <strong style="color: #1f2937;">{{if eq .Lang "fa"}}داده‌های لحظه‌ای{{else}}Real-Time Data{{end}}</strong>
+                        <p style="color: #6b7280; margin: 5px 0 0 0; font-size: 14px;">
+                            {{if eq .Lang "fa"}}با قیمت‌های لحظه‌ای بازار معامله کنید{{else}}Trade with live market prices{{end}}
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Dashboard CTA -->
+            <div style="text-align: center; margin: 30px 0 20px 0;">
+                <a href="{{.DashboardURL}}" style="display: inline-block; background-color: #10b981; color: #ffffff; text-decoration: none; padding: 14px 40px; border-radius: 6px; font-weight: 500; font-size: 16px;">
+                    {{if eq .Lang "fa"}}رفتن به داشبورد{{else}}Go to Dashboard{{end}}
+                </a>
+            </div>
+
+
+            <p style="color: #333; margin-bottom: 0; margin-top: 25px;">
+                {{if eq .Lang "fa"}}موفق باشید!<br>تیم Tragge{{else}}Good luck trading!<br>The Tragge Team{{end}}
+            </p>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #e9ecef;">
+            <p style="color: #999; font-size: 12px; margin: 0 0 10px 0;">
+                {{if eq .Lang "fa"}}این ایمیل توسط <strong>Tragge</strong> به شما ارسال شده است.{{else}}This email was sent by <strong>Tragge</strong>.{{end}}
+            </p>
+            <p style="color: #999; font-size: 12px; margin: 0;">
+                {{if eq .Lang "fa"}}اگر شما این حساب را ایجاد نکرده‌اید، لطفاً این ایمیل را نادیده بگیرید.{{else}}If you didn't create this account, please ignore this email.{{end}}
+            </p>
+        </div>
+    </div>
+</body>
+</html>

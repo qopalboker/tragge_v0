@@ -1,0 +1,57 @@
+# =============================================================================
+# STAGING TLS/SSL PATCHES
+# =============================================================================
+# Switch to Let's Encrypt staging issuer for TLS certificate testing
+#
+# Why use staging issuer:
+# - Let's Encrypt production has strict rate limits (50 certs/week)
+# - Staging has much higher limits for testing
+# - Staging certificates are not trusted by browsers (expected)
+# - Allows testing certificate automation without production impact
+#
+# IMPORTANT:
+# - Staging certificates will show "Not Secure" in browsers
+# - This is expected and normal for staging environments
+# - Switch to letsencrypt-prod when ready for production
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  # =============================================================================
+  # MAIN INGRESS - Use Staging Issuer
+  # =============================================================================
+  - patch: |-
+      - op: replace
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: "letsencrypt-staging"
+    target:
+      kind: Ingress
+      name: tragge-ingress
+
+  # =============================================================================
+  # WEBSOCKET INGRESS - Use Staging Issuer
+  # =============================================================================
+  - patch: |-
+      - op: replace
+        path: /metadata/annotations/cert-manager.io~1cluster-issuer
+        value: "letsencrypt-staging"
+    target:
+      kind: Ingress
+      name: tragge-websocket-ingress
+
+  # =============================================================================
+  # CERTIFICATE RESOURCE - Use Staging Issuer
+  # =============================================================================
+  # If you have a Certificate resource (separate from Ingress annotations)
+  - patch: |-
+      - op: replace
+        path: /spec/issuerRef/name
+        value: "letsencrypt-staging"
+      - op: replace
+        path: /spec/secretName
+        value: "tragge-staging-tls-secret"
+    target:
+      kind: Certificate
+      name: tragge-certificate

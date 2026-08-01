@@ -1,0 +1,17 @@
+{
+  "name": "@tragge/contracts",
+  "version": "1.0.0",
+  "description": "Versioned contracts for the tragge trading platform",
+  "type": "module",
+  "main": "./index.ts",
+  "types": "./index.ts",
+  "exports": {
+    ".": "./index.ts",
+    "./v1": "./v1/index.ts"
+  },
+  "files": [
+    "*.ts",
+    "v1/**/*.ts"
+  ],
+  "license": "MIT"
+}

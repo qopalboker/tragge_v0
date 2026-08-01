@@ -1,0 +1,200 @@
+# Promtail configuration for tragge platform
+# Collects and ships logs from Docker containers to Loki
+# Last updated: January 2026
+
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+    tenant_id: tragge
+    # Batching configuration for better performance
+    batchwait: 1s
+    batchsize: 1048576  # 1MB
+
+# =============================================================================
+# SCRAPE CONFIGURATIONS
+# =============================================================================
+scrape_configs:
+  # -------------------------------------------------------------------------
+  # Docker container logs via Docker SD
+  # This is the primary log source for all tragge services
+  # -------------------------------------------------------------------------
+  - job_name: docker
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 5s
+
+    relabel_configs:
+      # Only keep containers with the tragge_ prefix
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/tragge_(.+)'
+        action: keep
+
+      # Extract service name from container name
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/tragge_(.+?)(_\d+)?'
+        target_label: service
+        replacement: '${1}'
+
+      # Add container name as label
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.+)'
+        target_label: container
+
+      # Add log stream (stdout/stderr)
+      - source_labels: ['__meta_docker_container_log_stream']
+        target_label: stream
+
+      # Add container ID
+      - source_labels: ['__meta_docker_container_id']
+        target_label: container_id
+
+      # Add image name
+      - source_labels: ['__meta_docker_container_image']
+        target_label: image
+
+    pipeline_stages:
+      # -----------------------------------------------------------------------
+      # Stage 1: Parse JSON logs from Go services
+      # Go services use zap with JSON encoding and consistent field names
+      # -----------------------------------------------------------------------
+      - json:
+          expressions:
+            # Core log fields
+            level: level
+            msg: msg
+            ts: ts
+            caller: caller
+            stacktrace: stacktrace
+            error: error
+            # Service identification
+            service_name: service
+            env: env
+            version: version
+            # Tracing context (critical for log-to-trace correlation)
+            trace_id: trace_id
+            span_id: span_id
+            # Request context
+            request_id: request_id
+            # Business context
+            user_id: user_id
+            contest_id: contest_id
+            order_id: order_id
+            symbol: symbol
+            # HTTP request fields
+            method: method
+            path: path
+            status: status
+            duration: duration
+            bytes: bytes
+            remote_addr: remote_addr
+
+      # -----------------------------------------------------------------------
+      # Stage 2: Add extracted fields as labels for efficient querying
+      # Only add low-cardinality fields as labels
+      # -----------------------------------------------------------------------
+      - labels:
+          level:
+          service_name:
+          env:
+
+      # -----------------------------------------------------------------------
+      # Stage 3: Create derived labels for common queries
+      # -----------------------------------------------------------------------
+      - template:
+          source: level
+          template: '{{ ToLower .Value }}'
+
+      # -----------------------------------------------------------------------
+      # Stage 4: Parse timestamp from log
+      # Go zap uses ISO8601 format: 2006-01-02T15:04:05.000Z0700
+      # -----------------------------------------------------------------------
+      - timestamp:
+          source: ts
+          format: '2006-01-02T15:04:05.999999999Z07:00'
+          fallback_formats:
+            - RFC3339Nano
+            - RFC3339
+            - '2006-01-02T15:04:05.000Z'
+
+      # -----------------------------------------------------------------------
+      # Stage 5: Add trace_id as label only when present (for log-to-trace links)
+      # This enables clicking from log to trace in Grafana
+      # -----------------------------------------------------------------------
+      - regex:
+          expression: '"trace_id":"(?P<trace_id>[a-f0-9]{32})"'
+      - labels:
+          trace_id:
+
+      # -----------------------------------------------------------------------
+      # Stage 6: Structured metadata for Loki 2.7+
+      # These can be queried but don't affect index cardinality
+      # -----------------------------------------------------------------------
+      - structured_metadata:
+          user_id:
+          contest_id:
+          order_id:
+          symbol:
+          request_id:
+          span_id:
+          method:
+          path:
+          status:
+          caller:
+          duration:
+          error:
+
+      # -----------------------------------------------------------------------
+      # Stage 7: Add computed labels for alerting
+      # -----------------------------------------------------------------------
+      - match:
+          selector: '{level="error"}'
+          stages:
+            - static_labels:
+                alertable: "true"
+
+      - match:
+          selector: '{level="warn"}'
+          stages:
+            - static_labels:
+                alertable: "true"
+
+      # -----------------------------------------------------------------------
+      # Stage 8: Drop noisy logs (optional, uncomment if needed)
+      # -----------------------------------------------------------------------
+      # - drop:
+      #     expression: '.*healthz.*'
+      #     drop_counter_reason: healthcheck
+
+      # -----------------------------------------------------------------------
+      # Stage 9: Output - keep full JSON for context
+      # -----------------------------------------------------------------------
+      - output:
+          source: msg
+
+  # -------------------------------------------------------------------------
+  # Static file-based scraping for additional log files
+  # Used for logs not captured via Docker daemon
+  # -------------------------------------------------------------------------
+  - job_name: static_files
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: varlogs
+          __path__: /var/log/*.log
+
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            msg: msg
+      - labels:
+          level:
+      - output:
+          source: msg

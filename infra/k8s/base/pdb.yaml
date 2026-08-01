@@ -1,0 +1,214 @@
+# Pod Disruption Budget (PDB) Configurations for Tragge Trading Platform
+#
+# PDBs ensure that a minimum number of pods remain available during voluntary
+# disruptions like node drains, cluster upgrades, or maintenance operations.
+#
+# =============================================================================
+# PDB + HPA INTERACTION NOTES:
+# =============================================================================
+# - PDBs work with the CURRENT replica count, not HPA min/max
+# - If HPA scales to 3 pods and PDB says minAvailable: 2, only 1 can be evicted
+# - During cluster upgrades, pods are evicted one at a time respecting PDB
+# - If minAvailable equals current replicas, NO pods can be evicted (blocks upgrades!)
+# - Always set minAvailable < HPA minReplicas OR use maxUnavailable
+#
+# =============================================================================
+# CLUSTER UPGRADE BEHAVIOR:
+# =============================================================================
+# During node drains (kubectl drain):
+#   1. Kubernetes checks if evicting a pod would violate any PDB
+#   2. If violation would occur, the drain waits (up to --timeout)
+#   3. Pods are evicted one-by-one, respecting all PDBs
+#   4. New pods are scheduled on other nodes before continuing
+#
+# For rolling upgrades:
+#   - Ensure sufficient nodes can host min pods during transition
+#   - Consider pod anti-affinity to spread across nodes
+#   - Use preemption budget time for graceful connection draining
+#
+# =============================================================================
+# EMERGENCY BYPASS:
+# =============================================================================
+# In emergencies where PDBs block critical operations, you can:
+#
+# Option 1: Delete the PDB temporarily
+#   kubectl delete pdb <pdb-name> -n tragge
+#   # Perform emergency operation
+#   kubectl apply -f pdb.yaml  # Re-create afterward
+#
+# Option 2: Use --force (DANGEROUS - skips PDB entirely)
+#   kubectl drain <node> --force --ignore-daemonsets
+#   WARNING: This can cause service disruption!
+#
+# Option 3: Scale up before drain
+#   kubectl scale deployment <name> --replicas=<higher>
+#   # Wait for pods to be ready, then drain
+#
+# Option 4: Annotate for bypass (Kubernetes 1.27+)
+#   kubectl annotate pdb <pdb-name> pdb.kubernetes.io/unhealthy-pod-eviction-policy=AlwaysAllow
+#
+# =============================================================================
+
+---
+# =============================================================================
+# CRITICAL SERVICES - Must maintain availability at all times
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# TRADING-CORE PDB
+# -----------------------------------------------------------------------------
+# Handles WebSocket connections + trading engine + market data
+# Users have active trading sessions that would be disrupted by eviction
+# HPA min: 2, so minAvailable: 1 ensures at least 1 pod survives eviction
+#
+# SESSION AFFINITY CONSIDERATIONS:
+# - WebSocket connections use cookie-based affinity (TRAGGE_WS_AFFINITY)
+# - Connection registry in Redis tracks user→pod mappings
+# - Graceful shutdown sends close messages allowing clients to reconnect
+# - New connections will be routed to available pods via Ingress affinity
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: trading-core-pdb
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: trading-core
+    app.kubernetes.io/component: pdb
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  # Ensure at least 1 pod remains available during voluntary disruptions
+  # Prevents all pods from being evicted simultaneously during node upgrades
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: trading-core
+  # Allow eviction only if remaining pods can handle the traffic
+  # (Kubernetes 1.27+ feature)
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+
+# -----------------------------------------------------------------------------
+# TRADING-ENGINE STATEFULSET PDB - REMOVED
+# -----------------------------------------------------------------------------
+# In the consolidated architecture, the trading-engine is part of trading-core.
+# The trading-core deployment handles WebSocket connections, order processing,
+# and market data ingestion as a unified service.
+#
+# Previously the trading-engine ran as a StatefulSet with fixed shard count.
+# PDB was removed because:
+# - StatefulSet provides ordered, graceful pod management
+# - Each shard handles specific Kafka partitions; partial availability
+#   would cause message processing gaps for affected partitions
+# - The 60s terminationGracePeriodSeconds and preStop hook ensure
+#   graceful shutdown with in-flight order completion
+# - Kafka consumer offset commits prevent message loss/reprocessing
+#
+# During maintenance:
+# - Pods are terminated one at a time (OrderedReady update strategy by default)
+# - Each pod completes graceful shutdown before the next is terminated
+# - Kafka partitions are rebalanced to remaining shards automatically
+
+---
+# -----------------------------------------------------------------------------
+# GATEWAY PDB
+# -----------------------------------------------------------------------------
+# Entry point for all platform traffic - must always be reachable
+# All user requests route through gateway; downtime = platform offline
+# HPA min: 2, so minAvailable: 1 maintains external availability
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: gateway-pdb
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: pdb
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  # Entry point must always be available
+  # Even brief gateway downtime means the platform is unreachable
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+
+---
+# =============================================================================
+# IMPORTANT SERVICES - Can tolerate brief disruptions
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# API-SERVER PDB
+# -----------------------------------------------------------------------------
+# Handles user auth, admin, and payment processing
+# Consolidates user-bff, admin-bff, and payment-service into a single service
+# Brief disruption is acceptable as sessions are cached in Redis and
+# payment transactions are tracked in database
+# HPA min: 2, maxUnavailable 50% allows 1 of 2 pods to be evicted
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api-server-pdb
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: api-server
+    app.kubernetes.io/component: pdb
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  # Allow up to 50% of pods to be unavailable
+  # Users can retry login/registration after brief failures
+  # Payment webhook callbacks will be retried by payment providers
+  # More permissive than critical services to enable faster upgrades
+  maxUnavailable: "50%"
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-server
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+
+---
+# -----------------------------------------------------------------------------
+# WORKER PDB
+# -----------------------------------------------------------------------------
+# Handles leaderboard, settlement, scheduling, free contests
+# Consolidates leaderboard-worker, settlement-service, contest-scheduler,
+# and free-contest-generator into a single service
+# Kafka consumer offset tracking means no data loss on restart
+# HPA min: 2, so minAvailable: 1 ensures at least 1 pod processes events
+# during node upgrades, preventing leaderboard staleness and settlement delays
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: worker-pdb
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/component: pdb
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  # Ensure at least 1 pod remains available during voluntary disruptions
+  # Prevents all pods from being evicted simultaneously during node upgrades
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  unhealthyPodEvictionPolicy: IfHealthyBudget
+
+---
+# =============================================================================
+# LOW PRIORITY SERVICES - No PDB defined
+# =============================================================================
+#
+# The following services intentionally do NOT have PDBs:
+#
+# shard-router:
+#   - Routing service with built-in circuit breakers and caching
+#   - Brief downtime during maintenance is acceptable
+#   - Requests will be retried by upstream services
+#
+# frontend:
+#   - Static file serving only
+#   - CDN/cache should handle requests during brief disruptions
+#   - No state to preserve; instant restart recovery
+#   - Browser caching makes brief gaps invisible to users
+#
+# =============================================================================

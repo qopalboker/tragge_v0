@@ -1,0 +1,331 @@
+# =============================================================================
+# Network Policies for Redis High Availability
+# =============================================================================
+# These policies apply to Redis Sentinel and Redis Cluster deployments.
+# They replace the standalone redis-network-policy when using HA.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Redis StatefulSet Network Policy (for Sentinel mode)
+# -----------------------------------------------------------------------------
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-ha-network-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: database-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow connections from application services
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: user-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trade-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: admin-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-engine
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: market-ingestor
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: leaderboard-worker
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow replication between Redis pods
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow Sentinel to monitor Redis
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-sentinel
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow Prometheus scraping from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9121
+    # Allow Prometheus scraping from same namespace
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9121
+  egress:
+    # Allow replication between Redis pods
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow communication with Sentinel
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-sentinel
+      ports:
+        - protocol: TCP
+          port: 26379
+
+# -----------------------------------------------------------------------------
+# Redis Sentinel Network Policy
+# -----------------------------------------------------------------------------
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-sentinel-network-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: database-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-sentinel
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow connections from application services (for master discovery)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: user-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trade-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: admin-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-engine
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: market-ingestor
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: leaderboard-worker
+      ports:
+        - protocol: TCP
+          port: 26379
+    # Allow inter-sentinel communication
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-sentinel
+      ports:
+        - protocol: TCP
+          port: 26379
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9121
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9121
+  egress:
+    # Allow monitoring Redis pods
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow inter-sentinel communication
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-sentinel
+      ports:
+        - protocol: TCP
+          port: 26379
+
+# -----------------------------------------------------------------------------
+# Redis Cluster Network Policy
+# -----------------------------------------------------------------------------
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-cluster-network-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: database-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis-cluster
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow connections from application services
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: user-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trade-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: admin-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-engine
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: market-ingestor
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: leaderboard-worker
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow cluster bus communication between nodes
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-cluster
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 16379  # Cluster bus port
+    # Allow cluster init job
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-cluster-init
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow Prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9121
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9121
+  egress:
+    # Allow cluster bus communication between nodes
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis-cluster
+      ports:
+        - protocol: TCP
+          port: 6379
+        - protocol: TCP
+          port: 16379  # Cluster bus port
+
+# -----------------------------------------------------------------------------
+# Update Service Egress Policies for Sentinel Mode
+# These should replace the redis egress rules in service policies
+# -----------------------------------------------------------------------------
+# To use Sentinel mode, update service network policies to allow:
+# - Egress to redis pods on port 6379
+# - Egress to redis-sentinel pods on port 26379
+#
+# Example egress rules for services:
+#
+#   egress:
+#     # Allow egress to Redis (Sentinel mode)
+#     - to:
+#         - podSelector:
+#             matchLabels:
+#               app.kubernetes.io/name: redis
+#       ports:
+#         - protocol: TCP
+#           port: 6379
+#     # Allow egress to Redis Sentinel for master discovery
+#     - to:
+#         - podSelector:
+#             matchLabels:
+#               app.kubernetes.io/name: redis-sentinel
+#       ports:
+#         - protocol: TCP
+#           port: 26379
+#
+# -----------------------------------------------------------------------------
+# For Cluster mode, update service network policies to allow:
+# - Egress to redis-cluster pods on port 6379
+#
+# Example egress rules for services:
+#
+#   egress:
+#     # Allow egress to Redis Cluster
+#     - to:
+#         - podSelector:
+#             matchLabels:
+#               app.kubernetes.io/name: redis-cluster
+#       ports:
+#         - protocol: TCP
+#           port: 6379
+# -----------------------------------------------------------------------------

@@ -1,0 +1,686 @@
+# Backup Verification CronJobs for tragge Trading Platform
+# This configuration creates automated backup verification jobs that:
+# 1. Verify backup integrity in S3
+# 2. Test backup restoration to a temporary database
+# 3. Report verification results
+---
+# ConfigMap for verification scripts
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backup-verification-scripts
+  namespace: tragge
+  labels:
+    app: backup-verification
+data:
+  verify-postgres.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    echo "========================================"
+    echo "PostgreSQL Backup Verification"
+    echo "Started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    echo "========================================"
+
+    VERIFICATION_RESULT="SUCCESS"
+    VERIFICATION_DETAILS=""
+
+    # Step 1: Check latest backup exists
+    echo "[Step 1] Checking latest backup manifest..."
+    MANIFEST=$(aws s3 cp "s3://${S3_BUCKET}/${S3_PREFIX}/latest_full.json" - 2>/dev/null || echo "")
+
+    if [[ -z "$MANIFEST" ]]; then
+        echo "ERROR: No backup manifest found"
+        VERIFICATION_RESULT="FAILED"
+        VERIFICATION_DETAILS="No backup manifest found at s3://${S3_BUCKET}/${S3_PREFIX}/latest_full.json"
+    else
+        echo "Manifest found:"
+        echo "$MANIFEST" | jq .
+
+        BACKUP_FILE=$(echo "$MANIFEST" | jq -r '.backup_file')
+        BACKUP_TIMESTAMP=$(echo "$MANIFEST" | jq -r '.timestamp')
+        BACKUP_CREATED=$(echo "$MANIFEST" | jq -r '.created_at')
+
+        # Step 2: Verify backup file exists and get metadata
+        echo ""
+        echo "[Step 2] Verifying backup file exists..."
+        if ! aws s3 ls "s3://${S3_BUCKET}/${BACKUP_FILE}" &>/dev/null; then
+            echo "ERROR: Backup file not found: $BACKUP_FILE"
+            VERIFICATION_RESULT="FAILED"
+            VERIFICATION_DETAILS="Backup file not found: s3://${S3_BUCKET}/${BACKUP_FILE}"
+        else
+            BACKUP_SIZE=$(aws s3 ls "s3://${S3_BUCKET}/${BACKUP_FILE}" | awk '{print $3}')
+            echo "Backup file found: $BACKUP_FILE (${BACKUP_SIZE} bytes)"
+
+            # Step 3: Check backup age
+            echo ""
+            echo "[Step 3] Checking backup age..."
+            BACKUP_AGE_HOURS=$(( ($(date +%s) - $(date -d "$BACKUP_CREATED" +%s 2>/dev/null || echo $(($(date +%s) - 86400)))) / 3600 ))
+
+            if [[ $BACKUP_AGE_HOURS -gt 48 ]]; then
+                echo "WARNING: Backup is ${BACKUP_AGE_HOURS} hours old (> 48 hours)"
+                VERIFICATION_RESULT="WARNING"
+                VERIFICATION_DETAILS="Backup is ${BACKUP_AGE_HOURS} hours old"
+            else
+                echo "Backup age: ${BACKUP_AGE_HOURS} hours (OK)"
+            fi
+
+            # Step 4: Download and verify backup integrity
+            echo ""
+            echo "[Step 4] Downloading backup for integrity check..."
+            TEMP_DIR=$(mktemp -d)
+            TEMP_BACKUP="${TEMP_DIR}/backup.sql.gz"
+
+            if ! aws s3 cp "s3://${S3_BUCKET}/${BACKUP_FILE}" "$TEMP_BACKUP" --quiet; then
+                echo "ERROR: Failed to download backup"
+                VERIFICATION_RESULT="FAILED"
+                VERIFICATION_DETAILS="Failed to download backup from S3"
+            else
+                # Verify gzip integrity
+                if ! gzip -t "$TEMP_BACKUP" 2>/dev/null; then
+                    echo "ERROR: Backup file is corrupted (gzip test failed)"
+                    VERIFICATION_RESULT="FAILED"
+                    VERIFICATION_DETAILS="Backup file corrupted - gzip integrity check failed"
+                else
+                    echo "Backup file integrity: OK"
+
+                    # Step 5: Test restoration (if enabled)
+                    if [[ "${ENABLE_RESTORE_TEST:-false}" == "true" ]]; then
+                        echo ""
+                        echo "[Step 5] Testing backup restoration..."
+
+                        export PGPASSWORD="$POSTGRES_PASSWORD"
+
+                        # Create test database
+                        TEST_DB="backup_verify_$(date +%s)"
+                        psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d postgres -c \
+                            "CREATE DATABASE $TEST_DB;" 2>/dev/null
+
+                        # Restore backup
+                        if gunzip -c "$TEMP_BACKUP" | psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$TEST_DB" \
+                            --single-transaction 2>/dev/null; then
+
+                            # Verify tables exist
+                            TABLE_COUNT=$(psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d "$TEST_DB" -t -c \
+                                "SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = 'public';" | tr -d ' ')
+
+                            if [[ "$TABLE_COUNT" -gt 0 ]]; then
+                                echo "Restoration test: OK ($TABLE_COUNT tables restored)"
+                            else
+                                echo "WARNING: No tables found after restoration"
+                                VERIFICATION_RESULT="WARNING"
+                                VERIFICATION_DETAILS="${VERIFICATION_DETAILS}; No tables after restore test"
+                            fi
+                        else
+                            echo "ERROR: Restoration test failed"
+                            VERIFICATION_RESULT="FAILED"
+                            VERIFICATION_DETAILS="Restoration test failed"
+                        fi
+
+                        # Cleanup test database
+                        psql -h "$POSTGRES_HOST" -U "$POSTGRES_USER" -d postgres -c \
+                            "DROP DATABASE IF EXISTS $TEST_DB;" 2>/dev/null
+                    fi
+                fi
+            fi
+
+            # Cleanup
+            rm -rf "$TEMP_DIR"
+        fi
+    fi
+
+    # Step 6: Report results
+    echo ""
+    echo "========================================"
+    echo "Verification Result: $VERIFICATION_RESULT"
+    if [[ -n "$VERIFICATION_DETAILS" ]]; then
+        echo "Details: $VERIFICATION_DETAILS"
+    fi
+    echo "Completed: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    echo "========================================"
+
+    # Write verification report to S3
+    REPORT_TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+    cat > /tmp/verification-report.json <<EOF
+    {
+        "timestamp": "${REPORT_TIMESTAMP}",
+        "type": "postgres",
+        "result": "${VERIFICATION_RESULT}",
+        "details": "${VERIFICATION_DETAILS}",
+        "backup_file": "${BACKUP_FILE:-unknown}",
+        "backup_age_hours": ${BACKUP_AGE_HOURS:-0},
+        "verified_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    }
+    EOF
+    aws s3 cp /tmp/verification-report.json \
+        "s3://${S3_BUCKET}/${S3_PREFIX}/verification/postgres_${REPORT_TIMESTAMP}.json" \
+        --content-type "application/json"
+
+    # Also update latest verification
+    aws s3 cp /tmp/verification-report.json \
+        "s3://${S3_BUCKET}/${S3_PREFIX}/verification/latest.json" \
+        --content-type "application/json"
+
+    # Exit with appropriate code
+    if [[ "$VERIFICATION_RESULT" == "FAILED" ]]; then
+        exit 1
+    fi
+
+  verify-redis.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    echo "========================================"
+    echo "Redis Backup Verification"
+    echo "Started: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    echo "========================================"
+
+    VERIFICATION_RESULT="SUCCESS"
+    VERIFICATION_DETAILS=""
+
+    # Step 1: Check latest backup exists
+    echo "[Step 1] Checking latest backup manifest..."
+    MANIFEST=$(aws s3 cp "s3://${S3_BUCKET}/${S3_PREFIX}/latest.json" - 2>/dev/null || echo "")
+
+    if [[ -z "$MANIFEST" ]]; then
+        echo "ERROR: No backup manifest found"
+        VERIFICATION_RESULT="FAILED"
+        VERIFICATION_DETAILS="No backup manifest found"
+    else
+        echo "Manifest found:"
+        echo "$MANIFEST" | jq .
+
+        BACKUP_FILE=$(echo "$MANIFEST" | jq -r '.backup_file')
+        BACKUP_CREATED=$(echo "$MANIFEST" | jq -r '.created_at')
+        KEYS_COUNT=$(echo "$MANIFEST" | jq -r '.keys_count')
+
+        # Step 2: Verify backup file exists
+        echo ""
+        echo "[Step 2] Verifying backup file exists..."
+        if ! aws s3 ls "s3://${S3_BUCKET}/${BACKUP_FILE}" &>/dev/null; then
+            echo "ERROR: Backup file not found: $BACKUP_FILE"
+            VERIFICATION_RESULT="FAILED"
+            VERIFICATION_DETAILS="Backup file not found"
+        else
+            BACKUP_SIZE=$(aws s3 ls "s3://${S3_BUCKET}/${BACKUP_FILE}" | awk '{print $3}')
+            echo "Backup file found: $BACKUP_FILE (${BACKUP_SIZE} bytes)"
+
+            # Step 3: Check backup age
+            echo ""
+            echo "[Step 3] Checking backup age..."
+            BACKUP_AGE_HOURS=$(( ($(date +%s) - $(date -d "$BACKUP_CREATED" +%s 2>/dev/null || echo $(($(date +%s) - 86400)))) / 3600 ))
+
+            if [[ $BACKUP_AGE_HOURS -gt 48 ]]; then
+                echo "WARNING: Backup is ${BACKUP_AGE_HOURS} hours old (> 48 hours)"
+                VERIFICATION_RESULT="WARNING"
+                VERIFICATION_DETAILS="Backup is ${BACKUP_AGE_HOURS} hours old"
+            else
+                echo "Backup age: ${BACKUP_AGE_HOURS} hours (OK)"
+            fi
+
+            # Step 4: Download and verify backup integrity
+            echo ""
+            echo "[Step 4] Downloading backup for integrity check..."
+            TEMP_DIR=$(mktemp -d)
+            TEMP_BACKUP="${TEMP_DIR}/backup.rdb.gz"
+
+            if ! aws s3 cp "s3://${S3_BUCKET}/${BACKUP_FILE}" "$TEMP_BACKUP" --quiet; then
+                echo "ERROR: Failed to download backup"
+                VERIFICATION_RESULT="FAILED"
+                VERIFICATION_DETAILS="Failed to download backup from S3"
+            else
+                # Verify gzip integrity
+                if ! gzip -t "$TEMP_BACKUP" 2>/dev/null; then
+                    echo "ERROR: Backup file is corrupted (gzip test failed)"
+                    VERIFICATION_RESULT="FAILED"
+                    VERIFICATION_DETAILS="Backup file corrupted"
+                else
+                    echo "Backup file integrity: OK"
+
+                    # Decompress and check RDB header
+                    gunzip -c "$TEMP_BACKUP" > "${TEMP_DIR}/backup.rdb"
+
+                    # RDB files start with "REDIS"
+                    if head -c 5 "${TEMP_DIR}/backup.rdb" | grep -q "REDIS"; then
+                        echo "RDB file format: Valid"
+                    else
+                        echo "WARNING: RDB file format may be invalid"
+                        VERIFICATION_RESULT="WARNING"
+                        VERIFICATION_DETAILS="${VERIFICATION_DETAILS}; RDB format check failed"
+                    fi
+                fi
+            fi
+
+            # Cleanup
+            rm -rf "$TEMP_DIR"
+        fi
+    fi
+
+    # Compare with current Redis state
+    echo ""
+    echo "[Step 5] Comparing with current Redis state..."
+    REDIS_CLI="redis-cli -h $REDIS_HOST -p $REDIS_PORT"
+    if [[ -n "${REDIS_PASSWORD:-}" ]]; then
+        REDIS_CLI="$REDIS_CLI -a $REDIS_PASSWORD --no-auth-warning"
+    fi
+
+    CURRENT_KEYS=$($REDIS_CLI DBSIZE 2>/dev/null | grep -oE '[0-9]+' || echo "0")
+    echo "Current Redis keys: $CURRENT_KEYS"
+    echo "Backup keys count: ${KEYS_COUNT:-unknown}"
+
+    # Report results
+    echo ""
+    echo "========================================"
+    echo "Verification Result: $VERIFICATION_RESULT"
+    if [[ -n "$VERIFICATION_DETAILS" ]]; then
+        echo "Details: $VERIFICATION_DETAILS"
+    fi
+    echo "Completed: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    echo "========================================"
+
+    # Write verification report to S3
+    REPORT_TIMESTAMP=$(date '+%Y%m%d_%H%M%S')
+    cat > /tmp/verification-report.json <<EOF
+    {
+        "timestamp": "${REPORT_TIMESTAMP}",
+        "type": "redis",
+        "result": "${VERIFICATION_RESULT}",
+        "details": "${VERIFICATION_DETAILS}",
+        "backup_file": "${BACKUP_FILE:-unknown}",
+        "backup_age_hours": ${BACKUP_AGE_HOURS:-0},
+        "backup_keys": "${KEYS_COUNT:-unknown}",
+        "current_keys": "${CURRENT_KEYS}",
+        "verified_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+    }
+    EOF
+    aws s3 cp /tmp/verification-report.json \
+        "s3://${S3_BUCKET}/${S3_PREFIX}/verification/redis_${REPORT_TIMESTAMP}.json" \
+        --content-type "application/json"
+
+    aws s3 cp /tmp/verification-report.json \
+        "s3://${S3_BUCKET}/${S3_PREFIX}/verification/latest.json" \
+        --content-type "application/json"
+
+    if [[ "$VERIFICATION_RESULT" == "FAILED" ]]; then
+        exit 1
+    fi
+
+  aggregate-report.sh: |
+    #!/bin/bash
+    set -euo pipefail
+
+    echo "========================================"
+    echo "Backup Verification Summary Report"
+    echo "Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+    echo "========================================"
+
+    # Fetch latest verification reports
+    PG_REPORT=$(aws s3 cp "s3://${S3_BUCKET}/backups/postgres/verification/latest.json" - 2>/dev/null || echo "{}")
+    REDIS_REPORT=$(aws s3 cp "s3://${S3_BUCKET}/backups/redis/verification/latest.json" - 2>/dev/null || echo "{}")
+
+    # Parse results
+    PG_RESULT=$(echo "$PG_REPORT" | jq -r '.result // "UNKNOWN"')
+    REDIS_RESULT=$(echo "$REDIS_REPORT" | jq -r '.result // "UNKNOWN"')
+
+    echo ""
+    echo "PostgreSQL Backup Status: $PG_RESULT"
+    echo "Redis Backup Status: $REDIS_RESULT"
+
+    # Determine overall status
+    OVERALL="SUCCESS"
+    if [[ "$PG_RESULT" == "FAILED" || "$REDIS_RESULT" == "FAILED" ]]; then
+        OVERALL="FAILED"
+    elif [[ "$PG_RESULT" == "WARNING" || "$REDIS_RESULT" == "WARNING" ]]; then
+        OVERALL="WARNING"
+    elif [[ "$PG_RESULT" == "UNKNOWN" || "$REDIS_RESULT" == "UNKNOWN" ]]; then
+        OVERALL="UNKNOWN"
+    fi
+
+    echo ""
+    echo "Overall Status: $OVERALL"
+
+    # Generate aggregate report
+    cat > /tmp/aggregate-report.json <<EOF
+    {
+        "generated_at": "$(date -u '+%Y-%m-%dT%H:%M:%SZ')",
+        "overall_status": "${OVERALL}",
+        "postgres": ${PG_REPORT},
+        "redis": ${REDIS_REPORT}
+    }
+    EOF
+
+    aws s3 cp /tmp/aggregate-report.json \
+        "s3://${S3_BUCKET}/backups/verification-summary.json" \
+        --content-type "application/json"
+
+    echo ""
+    echo "Report uploaded to: s3://${S3_BUCKET}/backups/verification-summary.json"
+
+    # Send alert if verification failed
+    if [[ "$OVERALL" == "FAILED" ]]; then
+        echo ""
+        echo "ALERT: Backup verification failed!"
+        # Add alerting integration here (Slack, PagerDuty, etc.)
+        # curl -X POST -H 'Content-type: application/json' \
+        #     --data '{"text":"Backup verification FAILED"}' \
+        #     "$SLACK_WEBHOOK_URL"
+        exit 1
+    fi
+
+---
+# PostgreSQL Backup Verification CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: postgres-backup-verification
+  namespace: tragge
+  labels:
+    app: backup-verification
+    component: postgres
+spec:
+  # Run daily at 6:00 AM UTC (3 hours after backup)
+  schedule: "0 6 * * *"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 1800
+      template:
+        metadata:
+          labels:
+            app: backup-verification
+            component: postgres
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: backup-service-account
+          containers:
+          - name: verify
+            image: postgres:16-alpine
+            command:
+            - /bin/bash
+            - -c
+            - |
+              apk add --no-cache aws-cli bash jq
+              /scripts/verify-postgres.sh
+            env:
+            - name: POSTGRES_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: POSTGRES_HOST
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secrets
+                  key: POSTGRES_APP_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secrets
+                  key: POSTGRES_APP_PASSWORD
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: S3_BUCKET
+            - name: S3_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: POSTGRES_S3_PREFIX
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: AWS_REGION
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: AWS_SECRET_ACCESS_KEY
+            - name: ENABLE_RESTORE_TEST
+              value: "true"
+            volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            resources:
+              requests:
+                cpu: 100m
+                memory: 256Mi
+              limits:
+                cpu: 500m
+                memory: 1Gi
+          volumes:
+          - name: scripts
+            configMap:
+              name: backup-verification-scripts
+              defaultMode: 0755
+
+---
+# Redis Backup Verification CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: redis-backup-verification
+  namespace: tragge
+  labels:
+    app: backup-verification
+    component: redis
+spec:
+  # Run daily at 6:30 AM UTC (3 hours after backup)
+  schedule: "30 6 * * *"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  startingDeadlineSeconds: 600
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 900
+      template:
+        metadata:
+          labels:
+            app: backup-verification
+            component: redis
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: backup-service-account
+          containers:
+          - name: verify
+            image: redis:7-alpine
+            command:
+            - /bin/sh
+            - -c
+            - |
+              apk add --no-cache aws-cli bash jq
+              /scripts/verify-redis.sh
+            env:
+            - name: REDIS_HOST
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: REDIS_HOST
+            - name: REDIS_PORT
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: REDIS_PORT
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: REDIS_PASSWORD
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: S3_BUCKET
+            - name: S3_PREFIX
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: REDIS_S3_PREFIX
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: AWS_REGION
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: AWS_SECRET_ACCESS_KEY
+            volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            resources:
+              requests:
+                cpu: 50m
+                memory: 128Mi
+              limits:
+                cpu: 200m
+                memory: 512Mi
+          volumes:
+          - name: scripts
+            configMap:
+              name: backup-verification-scripts
+              defaultMode: 0755
+
+---
+# Weekly Aggregate Report CronJob
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: backup-verification-report
+  namespace: tragge
+  labels:
+    app: backup-verification
+    component: report
+spec:
+  # Run weekly on Sunday at 8:00 AM UTC
+  schedule: "0 8 * * 0"
+  timeZone: "UTC"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 4
+  failedJobsHistoryLimit: 4
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      activeDeadlineSeconds: 300
+      template:
+        metadata:
+          labels:
+            app: backup-verification
+            component: report
+        spec:
+          restartPolicy: OnFailure
+          serviceAccountName: backup-service-account
+          containers:
+          - name: report
+            image: amazon/aws-cli:latest
+            command:
+            - /bin/bash
+            - -c
+            - |
+              yum install -y jq
+              /scripts/aggregate-report.sh
+            env:
+            - name: S3_BUCKET
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: S3_BUCKET
+            - name: AWS_REGION
+              valueFrom:
+                configMapKeyRef:
+                  name: backup-config
+                  key: AWS_REGION
+            - name: AWS_ACCESS_KEY_ID
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: AWS_ACCESS_KEY_ID
+            - name: AWS_SECRET_ACCESS_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: backup-secrets
+                  key: AWS_SECRET_ACCESS_KEY
+            # Uncomment for Slack alerts
+            # - name: SLACK_WEBHOOK_URL
+            #   valueFrom:
+            #     secretKeyRef:
+            #       name: alerting-secrets
+            #       key: SLACK_WEBHOOK_URL
+            volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+            resources:
+              requests:
+                cpu: 50m
+                memory: 64Mi
+              limits:
+                cpu: 100m
+                memory: 128Mi
+          volumes:
+          - name: scripts
+            configMap:
+              name: backup-verification-scripts
+              defaultMode: 0755
+
+---
+# PrometheusRule for backup monitoring (if using Prometheus Operator)
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: backup-alerts
+  namespace: tragge
+  labels:
+    app: backup-system
+spec:
+  groups:
+  - name: backup.rules
+    rules:
+    - alert: BackupJobFailed
+      expr: |
+        kube_job_status_failed{namespace="tragge", job_name=~".*backup.*"} > 0
+      for: 5m
+      labels:
+        severity: critical
+      annotations:
+        summary: "Backup job {{ $labels.job_name }} failed"
+        description: "Backup job {{ $labels.job_name }} in namespace {{ $labels.namespace }} has failed"
+
+    - alert: BackupJobNotRun
+      expr: |
+        time() - kube_cronjob_status_last_successful_time{namespace="tragge", cronjob=~".*backup.*"} > 86400 * 2
+      for: 1h
+      labels:
+        severity: warning
+      annotations:
+        summary: "Backup cronjob {{ $labels.cronjob }} hasn't run in 2 days"
+        description: "Backup cronjob {{ $labels.cronjob }} last successful run was more than 2 days ago"
+
+    - alert: BackupVerificationFailed
+      expr: |
+        kube_job_status_failed{namespace="tragge", job_name=~".*verification.*"} > 0
+      for: 5m
+      labels:
+        severity: warning
+      annotations:
+        summary: "Backup verification {{ $labels.job_name }} failed"
+        description: "Backup verification job {{ $labels.job_name }} has failed - backups may be corrupted"

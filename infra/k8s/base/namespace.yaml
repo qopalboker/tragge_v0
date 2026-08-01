@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tragge
+  labels:
+    app.kubernetes.io/name: tragge
+    app.kubernetes.io/part-of: tragge-platform

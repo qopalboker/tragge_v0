@@ -1,0 +1,732 @@
+networks:
+  platform_net:
+    name: platform_net
+    driver: bridge
+
+volumes:
+  postgres_data:
+  redpanda_data:
+  redis_data:
+  uploads_data:
+
+# Shared environment — YAML anchor for ALLOWED_ORIGINS (DRY across 10 services)
+x-common-origins: &common-origins
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080,https://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://localhost:5173,http://localhost:5174,http://localhost:5175,https://localhost:5173,https://localhost:5174,https://localhost:5175,https://*.app.github.dev}
+
+# Docker Secrets for sensitive data
+# Create files in ./secrets/ directory before starting
+# Run: ./scripts/secrets/init-secrets.sh && ./scripts/secrets/generate-db-credentials.sh
+secrets:
+  twelvedata_api_keys:
+    file: ./secrets/twelvedata_api_keys.txt
+  massive_api_keys:
+    file: ./secrets/massive_api_keys.txt
+  jwt_secret:
+    file: ./secrets/jwt_secret.txt
+  # Step 5 split: user-panel and admin-panel tokens are signed with
+  # distinct secrets so a leaked user key cannot forge admin tokens.
+  # Generate both via ./scripts/secrets/init-secrets.sh — in prod they
+  # MUST differ; in dev init-secrets.sh will create separate values.
+  jwt_secret_user:
+    file: ./secrets/jwt_secret_user.txt
+  jwt_refresh_secret_user:
+    file: ./secrets/jwt_refresh_secret_user.txt
+  jwt_secret_admin:
+    file: ./secrets/jwt_secret_admin.txt
+  jwt_refresh_secret_admin:
+    file: ./secrets/jwt_refresh_secret_admin.txt
+  resend_api_key:
+    file: ./secrets/resend_api_key.txt
+  security_code_hash_secret:
+    file: ./secrets/security_code_hash_secret.txt
+  mailerino_api_key:
+    file: ./secrets/mailerino_api_key.txt
+  discord_webhook_url:
+    file: ./secrets/discord_webhook_url.txt
+  # PostgreSQL role-based credentials
+  postgres_admin_password:
+    file: ./secrets/postgres_admin_password.txt
+  postgres_app_password:
+    file: ./secrets/postgres_app_password.txt
+  postgres_readonly_password:
+    file: ./secrets/postgres_readonly_password.txt
+  pgbouncer_auth_password:
+    file: ./secrets/pgbouncer_auth_password.txt
+  # Payment provider secrets
+  nowpayments_api_key:
+    file: ./secrets/nowpayments_api_key.txt
+  nowpayments_ipn_secret:
+    file: ./secrets/nowpayments_ipn_secret.txt
+  jibit_api_key:
+    file: ./secrets/jibit_api_key.txt
+  jibit_secret_key:
+    file: ./secrets/jibit_secret_key.txt
+  # Jibit KYC secrets (may share keys with payment, or use separate keys)
+  jibit_kyc_api_key:
+    file: ./secrets/jibit_kyc_api_key.txt
+  jibit_kyc_secret_key:
+    file: ./secrets/jibit_kyc_secret_key.txt
+  # Payment4 crypto gateway secrets
+  payment4_api_key:
+    file: ./secrets/payment4_api_key.txt
+  payment4_ipn_secret:
+    file: ./secrets/payment4_ipn_secret.txt
+  # OAuth provider secrets
+  google_client_id:
+    file: ./secrets/google_client_id.txt
+  google_client_secret:
+    file: ./secrets/google_client_secret.txt
+  nobitex_token:
+    file: ./secrets/nobitex_token.txt
+  # TOTP encryption key (AES-256-GCM for 2FA secrets at rest)
+  totp_encryption_key:
+    file: ./secrets/totp_encryption_key.txt
+  # KaveNegar SMS API key
+  kavenegar_api_key:
+    file: ./secrets/kavenegar_api_key.txt
+  # Redis authentication password
+  redis_password:
+    file: ./secrets/redis_password.txt
+  # Market ingestor control API key
+  control_api_key:
+    file: ./secrets/control_api_key.txt
+
+services:
+  # PostgreSQL 16 with role-based access control
+  postgres:
+    image: postgres:16-alpine
+    container_name: tragge_postgres
+    restart: unless-stopped
+    command: >
+      postgres
+      -c shared_buffers=128MB
+      -c effective_cache_size=256MB
+      -c work_mem=4MB
+      -c maintenance_work_mem=64MB
+      -c max_connections=50
+      -c wal_buffers=4MB
+      -c checkpoint_completion_target=0.9
+      -c random_page_cost=1.1
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      # Admin user for initial setup and migrations
+      POSTGRES_USER: ${POSTGRES_ADMIN_USER:-tragge_admin}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_admin_password
+      # Use scram-sha-256 for password hashing
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+      POSTGRES_INITDB_ARGS: "--auth-host=scram-sha-256 --auth-local=scram-sha-256"
+      # Environment variables for init scripts to create additional users
+      TRAGGE_APP_USER: ${POSTGRES_APP_USER:-tragge_app}
+      TRAGGE_APP_PASSWORD_FILE: /run/secrets/postgres_app_password
+      TRAGGE_READONLY_USER: ${POSTGRES_READONLY_USER:-tragge_readonly}
+      TRAGGE_READONLY_PASSWORD_FILE: /run/secrets/postgres_readonly_password
+      PGBOUNCER_AUTH_USER: ${PGBOUNCER_AUTH_USER:-pgbouncer_auth}
+      PGBOUNCER_AUTH_PASSWORD_FILE: /run/secrets/pgbouncer_auth_password
+    secrets:
+      - source: postgres_admin_password
+        mode: 0400
+      - source: postgres_app_password
+        mode: 0400
+      - source: postgres_readonly_password
+        mode: 0400
+      - source: pgbouncer_auth_password
+        mode: 0400
+    # ports exposed via docker-compose.override.yml for development
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      # Mount init scripts for user creation
+      - ../../packages/db/init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - platform_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ADMIN_USER:-tragge_admin} -d ${POSTGRES_DB:-app}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  # Redis 7 — password-protected with AOF persistence
+  redis:
+    image: redis:7-alpine
+    container_name: tragge_redis
+    restart: unless-stopped
+    command:
+      - /bin/sh
+      - -c
+      - redis-server --requirepass "$$(cat /run/secrets/redis_password)" --appendonly yes --appendfsync everysec --maxmemory 128mb --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 192M
+    secrets:
+      - redis_password
+    volumes:
+      - redis_data:/data
+    # ports exposed via docker-compose.override.yml for development
+    networks:
+      - platform_net
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli -a \"$$(cat /run/secrets/redis_password)\" --no-auth-warning ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  # Redpanda (Kafka-compatible)
+  redpanda:
+    image: redpandadata/redpanda:v24.1.1
+    container_name: tragge_redpanda
+    restart: unless-stopped
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:9092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --memory 256M
+      - --reserve-memory 0M
+      - --overprovisioned
+      - --default-log-level=warn
+    # ports exposed via docker-compose.override.yml for development
+    volumes:
+      - redpanda_data:/var/lib/redpanda/data
+    networks:
+      - platform_net
+    healthcheck:
+      test: ["CMD-SHELL", "rpk cluster health | grep -E 'Healthy:.+true' || exit 1"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Kafka Topic Initialization - creates all topics with correct partition counts
+  # Runs once after Redpanda is healthy, before application services start
+  kafka-init:
+    image: redpandadata/redpanda:v24.1.1
+    container_name: tragge_kafka_init
+    restart: "no"
+    entrypoint: /bin/bash
+    command: /scripts/create-topics.sh
+    environment:
+      KAFKA_BROKERS: redpanda:9092
+      REPLICATION_FACTOR: "1"
+    volumes:
+      - ../../scripts/kafka:/scripts:ro
+    networks:
+      - platform_net
+    depends_on:
+      redpanda:
+        condition: service_healthy
+
+  # =============================================================================
+  # API SERVER (merged: user-bff + admin-bff + payment-service)
+  # =============================================================================
+  api-server:
+    profiles: ["app", "full"]
+    build:
+      context: ../..
+      dockerfile: apps/api-server/Dockerfile
+    container_name: tragge_api_server
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: '1.0'
+    environment:
+      # Service ports (each sub-service uses its own port)
+      USER_BFF_PORT: "8081"
+      ADMIN_BFF_PORT: "8083"
+      PAYMENT_SERVICE_PORT: "8091"
+      # DB connection pool (15 open, 5 idle — moderate for HTTP handlers)
+      DB_MAX_OPEN_CONNS: "15"
+      DB_MAX_IDLE_CONNS: "5"
+      DB_CONN_MAX_LIFETIME_SECONDS: "300"
+      DB_CONN_MAX_IDLE_TIME_SECONDS: "60"
+      # Go runtime memory tuning
+      GOGC: "50"
+      GOMEMLIMIT: "200MiB"
+      # Common config
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      KAFKA_BROKERS: redpanda:9092
+      <<: *common-origins
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_SSLMODE: ${POSTGRES_SSLMODE:-disable}
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-tragge_app}
+      POSTGRES_APP_PASSWORD_FILE: /run/secrets/postgres_app_password
+      POSTGRES_READONLY_USER: ${POSTGRES_READONLY_USER:-tragge_readonly}
+      POSTGRES_READONLY_PASSWORD_FILE: /run/secrets/postgres_readonly_password
+      POSTGRES_USER: ${POSTGRES_APP_USER:-tragge_app}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_app_password
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      # User and Admin access/refresh tokens have four distinct signing keys.
+      JWT_SECRET_USER_FILE: /run/secrets/jwt_secret_user
+      JWT_REFRESH_SECRET_USER_FILE: /run/secrets/jwt_refresh_secret_user
+      JWT_SECRET_ADMIN_FILE: /run/secrets/jwt_secret_admin
+      JWT_REFRESH_SECRET_ADMIN_FILE: /run/secrets/jwt_refresh_secret_admin
+      JWT_ISSUER_USER: ${JWT_ISSUER_USER:-tragge-user-auth}
+      JWT_ISSUER_ADMIN: ${JWT_ISSUER_ADMIN:-tragge-admin-auth}
+      JWT_AUDIENCE_USER: ${JWT_AUDIENCE_USER:-user}
+      JWT_AUDIENCE_ADMIN: ${JWT_AUDIENCE_ADMIN:-admin}
+      USER_FRONTEND_ORIGIN: ${USER_FRONTEND_ORIGIN:-http://127.0.0.1:8080}
+      ADMIN_FRONTEND_ORIGIN: ${ADMIN_FRONTEND_ORIGIN:-http://127.0.0.1:8081}
+      DISCORD_WEBHOOK_URL_FILE: /run/secrets/discord_webhook_url
+      # User security-code delivery: both country routes and a dedicated HMAC key.
+      SECURITY_CODE_HASH_SECRET_FILE: /run/secrets/security_code_hash_secret
+      MAILERINO_API_KEY_FILE: /run/secrets/mailerino_api_key
+      MAILERINO_FROM_EMAIL: ${MAILERINO_FROM_EMAIL:-}
+      MAILERINO_BASE_URL: ${MAILERINO_BASE_URL:-https://api.mailerino.com}
+      RESEND_API_KEY_FILE: /run/secrets/resend_api_key
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
+      RESEND_BASE_URL: ${RESEND_BASE_URL:-https://api.resend.com}
+      NOTIFICATION_ENABLED: ${NOTIFICATION_ENABLED:-false}
+      NOTIFICATION_ASYNC: ${NOTIFICATION_ASYNC:-true}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      # CODESPACE_NAME lets the CORS middleware build the right
+      # allowed-origins list (https://<name>-5173.app.github.dev, etc.)
+      # for the public Codespaces URL. The cookie helper itself no
+      # longer reads any Codespaces env var — it picks SameSite/Secure
+      # from the request scheme (r.TLS, X-Forwarded-Proto).
+      CODESPACE_NAME: ${CODESPACE_NAME:-}
+      # user-bff: Google OAuth
+      GOOGLE_CLIENT_ID_FILE: /run/secrets/google_client_id
+      GOOGLE_CLIENT_SECRET_FILE: /run/secrets/google_client_secret
+      GOOGLE_REDIRECT_URI: ${GOOGLE_REDIRECT_URI:-http://127.0.0.1:8080/user/auth/google/callback}
+      # user-bff: Jibit KYC
+      JIBIT_KYC_API_KEY_FILE: /run/secrets/jibit_kyc_api_key
+      JIBIT_KYC_SECRET_KEY_FILE: /run/secrets/jibit_kyc_secret_key
+      JIBIT_KYC_BASE_URL: ${JIBIT_KYC_BASE_URL:-https://napi.jibit.ir}
+      # Storage: local filesystem in dev (auto-selected by storage.New)
+      STORAGE_BACKEND: local
+      STORAGE_LOCAL_PATH: /data/uploads
+      S3_BUCKET: tragge-avatars
+      S3_KYC_BUCKET: tragge-kyc
+      S3_PUBLIC_URL: "http://127.0.0.1:8080/uploads/tragge-avatars"
+      # user-bff: TOTP
+      TOTP_ENCRYPTION_KEY_FILE: /run/secrets/totp_encryption_key
+      # user-bff: KaveNegar SMS OTP
+      KAVENEGAR_API_KEY_FILE: /run/secrets/kavenegar_api_key
+      SMS_ENABLED: ${SMS_ENABLED:-true}
+      SMS_PROVIDER: ${SMS_PROVIDER:-kavenegar}
+      SMS_SENDER: ${SMS_SENDER:-}
+      SMS_TEMPLATE: ${SMS_TEMPLATE:-tragge-verify}
+      # admin-bff: Market ingestor control API
+      MARKET_INGESTOR_URL: http://trading-core:8084
+      MARKET_INGESTOR_API_KEY_FILE: /run/secrets/control_api_key
+      # payment-service: NOWPayments
+      NOWPAYMENTS_API_KEY_FILE: /run/secrets/nowpayments_api_key
+      NOWPAYMENTS_IPN_SECRET_FILE: /run/secrets/nowpayments_ipn_secret
+      NOWPAYMENTS_SANDBOX: ${NOWPAYMENTS_SANDBOX:-false}
+      # payment-service: Jibit PPG
+      JIBIT_API_KEY_FILE: /run/secrets/jibit_api_key
+      JIBIT_SECRET_KEY_FILE: /run/secrets/jibit_secret_key
+      JIBIT_CALLBACK_URL: ${JIBIT_CALLBACK_URL:-https://tragge.com/api/payments/callback/jibit}
+      JIBIT_BASE_URL: ${JIBIT_BASE_URL:-https://napi.jibit.ir/ppg/v3}
+      # payment-service: Payment4
+      PAYMENT4_API_KEY_FILE: /run/secrets/payment4_api_key
+      PAYMENT4_IPN_SECRET_FILE: /run/secrets/payment4_ipn_secret
+      PAYMENT4_CALLBACK_URL: ${PAYMENT4_CALLBACK_URL:-http://127.0.0.1:3000/payment/result}
+      PAYMENT4_WEBHOOK_URL: ${PAYMENT4_WEBHOOK_URL:-http://127.0.0.1:8091/webhooks/payment4}
+      PAYMENT4_BASE_URL: ${PAYMENT4_BASE_URL:-https://api.payment4.com/api/v1}
+      PAYMENT4_SANDBOX: ${PAYMENT4_SANDBOX:-true}
+      # payment-service: Webhook/redirect config
+      WEBHOOK_BASE_URL: ${WEBHOOK_BASE_URL:-http://127.0.0.1:8091}
+      SUCCESS_REDIRECT_URL: ${SUCCESS_REDIRECT_URL:-http://127.0.0.1:8080/payment/result?status=1}
+      CANCEL_REDIRECT_URL: ${CANCEL_REDIRECT_URL:-http://127.0.0.1:8080/payment/result?status=0}
+    secrets:
+      - redis_password
+      - postgres_app_password
+      - postgres_readonly_password
+      - jwt_secret
+      - jwt_secret_user
+      - jwt_refresh_secret_user
+      - jwt_secret_admin
+      - jwt_refresh_secret_admin
+      - discord_webhook_url
+      - resend_api_key
+      - security_code_hash_secret
+      - mailerino_api_key
+      - google_client_id
+      - google_client_secret
+      - jibit_kyc_api_key
+      - jibit_kyc_secret_key
+      - totp_encryption_key
+      - nowpayments_api_key
+      - nowpayments_ipn_secret
+      - jibit_api_key
+      - jibit_secret_key
+      - payment4_api_key
+      - payment4_ipn_secret
+      - kavenegar_api_key
+      - control_api_key
+    volumes:
+      - uploads_data:/data/uploads
+    networks:
+      - platform_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8081/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+  # =============================================================================
+  # TRADING-CORE (merged: trading-engine + market-ingestor + trade-bff)
+  # =============================================================================
+  trading-core:
+    profiles: ["app", "full"]
+    build:
+      context: ../..
+      dockerfile: apps/trading-core/Dockerfile
+    container_name: tragge_trading_core
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+          cpus: '1.5'
+    environment:
+      # Service ports
+      TRADE_BFF_PORT: "8082"
+      MARKET_INGESTOR_PORT: "8084"
+      TRADING_ENGINE_PORT: "8085"
+      # DB connection pool (20 open — high throughput tick writes)
+      DB_MAX_OPEN_CONNS: "20"
+      DB_MAX_IDLE_CONNS: "8"
+      DB_CONN_MAX_LIFETIME_SECONDS: "300"
+      # Go runtime tuning (needs more headroom for tick processing)
+      GOGC: "80"
+      GOMEMLIMIT: "400MiB"
+      # Common config
+      <<: *common-origins
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_SSLMODE: ${POSTGRES_SSLMODE:-disable}
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      KAFKA_BROKERS: redpanda:9092
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-tragge_app}
+      POSTGRES_APP_PASSWORD_FILE: /run/secrets/postgres_app_password
+      POSTGRES_READONLY_USER: ${POSTGRES_READONLY_USER:-tragge_readonly}
+      POSTGRES_READONLY_PASSWORD_FILE: /run/secrets/postgres_readonly_password
+      POSTGRES_USER: ${POSTGRES_APP_USER:-tragge_app}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_app_password
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+      # trade-bff validates the explicit User trust domain only.
+      JWT_SECRET_USER_FILE: /run/secrets/jwt_secret_user
+      JWT_REFRESH_SECRET_USER_FILE: /run/secrets/jwt_refresh_secret_user
+      JWT_ISSUER_USER: ${JWT_ISSUER_USER:-tragge-user-auth}
+      JWT_AUDIENCE_USER: ${JWT_AUDIENCE_USER:-user}
+      USER_FRONTEND_ORIGIN: ${USER_FRONTEND_ORIGIN:-http://127.0.0.1:8080}
+      DISCORD_WEBHOOK_URL_FILE: /run/secrets/discord_webhook_url
+      RESEND_API_KEY_FILE: /run/secrets/resend_api_key
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-onboarding@resend.dev}
+      NOTIFICATION_ENABLED: ${NOTIFICATION_ENABLED:-false}
+      NOTIFICATION_ASYNC: ${NOTIFICATION_ASYNC:-true}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+      # trade-bff
+      CANDLE_AGGREGATION_ENABLED: "${CANDLE_AGGREGATION_ENABLED:-true}"
+      # market-ingestor
+      TWELVEDATA_API_KEYS_FILE: /run/secrets/twelvedata_api_keys
+      MASSIVE_API_KEYS_FILE: /run/secrets/massive_api_keys
+      MARKET_PROVIDER: ${MARKET_PROVIDER:-massive}
+      SYMBOLS: ${SYMBOLS:-EUR/USD,GBP/USD,USD/JPY,USD/CHF,AUD/USD,NZD/USD,USD/CAD,EUR/GBP,EUR/JPY,GBP/JPY,AUD/JPY,CHF/JPY,EUR/AUD,GBP/AUD,EUR/CAD,AUD/NZD,CAD/JPY,NZD/JPY,EUR/CHF,GBP/CHF,GBP/CAD,XAU/USD,XAG/USD,BTC/USD,ETH/USD,SOL/USD,DOGE/USD,XRP/USD,ADA/USD,AVAX/USD,LINK/USD,DOT/USD,POL/USD,SHIB/USD,LTC/USD,UNI/USD,ETC/USD,XLM/USD,NEAR/USD,AAVE/USD,SUI/USD,PEPE/USD,ARB/USD,OP/USD,APT/USD,INJ/USD,RENDER/USD}
+      FAILOVER_TIMEOUT: ${FAILOVER_TIMEOUT:-30s}
+      AUTO_SWITCHBACK: ${AUTO_SWITCHBACK:-true}
+      SWITCHBACK_DELAY: ${SWITCHBACK_DELAY:-60s}
+      HEALTH_CHECK_PERIOD: ${HEALTH_CHECK_PERIOD:-30s}
+      NOBITEX_ENABLED: ${NOBITEX_ENABLED:-true}
+      NOBITEX_TOKEN_FILE: /run/secrets/nobitex_token
+      NOBITEX_BASE_URL: ${NOBITEX_BASE_URL:-https://apiv2.nobitex.ir}
+      NOBITEX_POLL_INTERVAL: ${NOBITEX_POLL_INTERVAL:-2s}
+      NOBITEX_USDT_USD_RATE: ${NOBITEX_USDT_USD_RATE:-1.0}
+      CRYPTO_PROVIDER: ${CRYPTO_PROVIDER:-binance}
+      CONTROL_API_KEY_FILE: /run/secrets/control_api_key
+      # trading-engine
+      CONSUMER_GROUP: trading-engine
+      ORDERS_TOPIC: orders.v1
+      TICKS_TOPIC: ticks.v1
+      FILLS_TOPIC: fills.v1
+      POSITIONS_TOPIC: positions.v1
+      PNL_DELTAS_TOPIC: pnl_deltas.v1
+      ORDER_ACKS_TOPIC: order_acks.v1
+      POSITION_CLOSED_TOPIC: position_closed.v1
+      ORDER_CANCELLED_TOPIC: order_cancelled.v1
+      CLOSE_POSITIONS_TOPIC: close_positions.v1
+      CANCEL_ORDERS_TOPIC: cancel_orders.v1
+      MODIFY_TPSL_TOPIC: modify_tpsl.v1
+      NOTIFICATIONS_TOPIC: notifications.v1
+      SHARD_ID: "0"
+      SHARD_COUNT: "1"
+      SHARD_ENABLED: "false"
+    secrets:
+      - redis_password
+      - postgres_app_password
+      - postgres_readonly_password
+      - jwt_secret
+      - jwt_secret_user
+      - jwt_refresh_secret_user
+      - discord_webhook_url
+      - resend_api_key
+      - twelvedata_api_keys
+      - massive_api_keys
+      - nobitex_token
+      - control_api_key
+    networks:
+      - platform_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8082/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+  # =============================================================================
+  # WORKER (merged: leaderboard-worker + settlement-service + contest-scheduler + free-contest-generator)
+  # =============================================================================
+  worker:
+    profiles: ["app", "full"]
+    build:
+      context: ../..
+      dockerfile: apps/worker/Dockerfile
+    container_name: tragge_worker
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: '0.5'
+    environment:
+      # Per-worker ports
+      LEADERBOARD_WORKER_PORT: "8086"
+      SETTLEMENT_SERVICE_PORT: "8087"
+      CONTEST_SCHEDULER_PORT: "8088"
+      FREE_CONTEST_GENERATOR_PORT: "8089"
+      # DB connection pool (10 open — burst during finalization, idle otherwise)
+      DB_MAX_OPEN_CONNS: "10"
+      DB_MAX_IDLE_CONNS: "3"
+      DB_CONN_MAX_LIFETIME_SECONDS: "300"
+      # Go runtime tuning
+      GOGC: "50"
+      GOMEMLIMIT: "150MiB"
+      <<: *common-origins
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_SSLMODE: ${POSTGRES_SSLMODE:-disable}
+      REDIS_ADDR: redis:6379
+      REDIS_PASSWORD_FILE: /run/secrets/redis_password
+      KAFKA_BROKERS: redpanda:9092
+      POSTGRES_APP_USER: ${POSTGRES_APP_USER:-tragge_app}
+      POSTGRES_APP_PASSWORD_FILE: /run/secrets/postgres_app_password
+      POSTGRES_USER: ${POSTGRES_APP_USER:-tragge_app}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_app_password
+      # The Settlement Admin endpoint validates the complete isolated pair,
+      # then receives only the Admin trust context.
+      JWT_SECRET_USER_FILE: /run/secrets/jwt_secret_user
+      JWT_REFRESH_SECRET_USER_FILE: /run/secrets/jwt_refresh_secret_user
+      JWT_SECRET_ADMIN_FILE: /run/secrets/jwt_secret_admin
+      JWT_REFRESH_SECRET_ADMIN_FILE: /run/secrets/jwt_refresh_secret_admin
+      JWT_ISSUER_USER: ${JWT_ISSUER_USER:-tragge-user-auth}
+      JWT_ISSUER_ADMIN: ${JWT_ISSUER_ADMIN:-tragge-admin-auth}
+      JWT_AUDIENCE_USER: ${JWT_AUDIENCE_USER:-user}
+      JWT_AUDIENCE_ADMIN: ${JWT_AUDIENCE_ADMIN:-admin}
+      USER_FRONTEND_ORIGIN: ${USER_FRONTEND_ORIGIN:-http://127.0.0.1:8080}
+      ADMIN_FRONTEND_ORIGIN: ${ADMIN_FRONTEND_ORIGIN:-http://127.0.0.1:8081}
+      # Kafka topics
+      CONSUMER_GROUP: leaderboard-worker
+      PNL_DELTAS_TOPIC: pnl_deltas.v1
+      CONTEST_STATE_TOPIC: contests.v1
+      SNAPSHOT_INTERVAL: "30s"
+      SNAPSHOT_TOP_N: "100"
+      SHARD_COUNT: "6"
+      SHARD_ID: "0"
+      CACHE_TTL: "30s"
+      SIGNIFICANT_SCORE_CHANGE: "100"
+      # Settlement config
+      SETTLEMENT_REQ_TOPIC: settlement_requests.v1
+      POSITION_CLOSED_TOPIC: position_closed.v1
+      SETTLEMENT_EVENTS_TOPIC: settlement_events.v1
+      CLOSE_POSITIONS_TOPIC: contest_close_positions.v1
+      CANCEL_ORDERS_TOPIC: contest_cancel_orders.v1
+      NOTIFICATIONS_TOPIC: notifications.v1
+      SETTLEMENT_MAX_RETRIES: "3"
+      SETTLEMENT_RETRY_DELAY_SECONDS: "10"
+      SETTLEMENT_TIMEOUT_MINUTES: "10"
+      WINNERS_PERCENTAGE: "30"
+      PLATFORM_FEE_BPS: "1700"
+      # Scheduler config
+      CHECK_INTERVAL: ${CONTEST_CHECK_INTERVAL:-30s}
+      MAX_CONCURRENT: ${CONTEST_MAX_CONCURRENT:-10}
+      MAX_RETRIES: ${CONTEST_MAX_RETRIES:-3}
+      LOCK_TTL: ${CONTEST_LOCK_TTL:-60s}
+      # Free contest generator config
+      KAFKA_CONTESTS_TOPIC: contests.v1
+      FREE_CONTEST_ENABLED: "true"
+      FREE_CONTEST_INTERVAL_MINUTES: "30"
+      FREE_CONTEST_DURATION_MINUTES: "60"
+      FREE_CONTEST_ASSET_CLASSES: "forex,crypto"
+      FREE_CONTEST_WEEKDAYS_ONLY: "false"
+      FREE_CONTEST_START_HOUR_UTC: "0"
+      FREE_CONTEST_END_HOUR_UTC: "24"
+      FREE_CONTEST_LEAD_TIME_MINUTES: "2"
+      FREE_CONTEST_CLEANUP_ENABLED: "true"
+      FREE_CONTEST_CLEANUP_INTERVAL_MINUTES: "60"
+      FREE_CONTEST_CLEANUP_RETENTION_HOURS: "24"
+      # Notifications
+      DISCORD_WEBHOOK_URL_FILE: /run/secrets/discord_webhook_url
+      RESEND_API_KEY_FILE: /run/secrets/resend_api_key
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-onboarding@resend.dev}
+      NOTIFICATION_ENABLED: ${NOTIFICATION_ENABLED:-false}
+      NOTIFICATION_ASYNC: ${NOTIFICATION_ASYNC:-true}
+      ENVIRONMENT: ${ENVIRONMENT:-development}
+    secrets:
+      - redis_password
+      - postgres_app_password
+      - jwt_secret_user
+      - jwt_refresh_secret_user
+      - jwt_secret_admin
+      - jwt_refresh_secret_admin
+      - discord_webhook_url
+      - resend_api_key
+    networks:
+      - platform_net
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8086/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+
+  # User-panel Frontend (Vue 3 + Vite — user + trade modules)
+  user-frontend:
+    profiles: ["frontend", "full"]
+    build:
+      context: ../..
+      dockerfile: apps/user-frontend/Dockerfile
+    container_name: tragge_user_frontend
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+    expose:
+      - "8080"
+    networks:
+      - platform_net
+    environment:
+      - VITE_API_BASE_URL=http://127.0.0.1:8080
+    healthcheck:
+      test: ["CMD", "wget", "-qO/dev/null", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+
+  # Admin-panel Frontend (Vue 3 + Vite — admin module only)
+  admin-frontend:
+    profiles: ["frontend", "full"]
+    build:
+      context: ../..
+      dockerfile: apps/admin-frontend/Dockerfile
+    container_name: tragge_admin_frontend
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+    expose:
+      - "8080"
+    networks:
+      - platform_net
+    environment:
+      - VITE_API_BASE_URL=http://127.0.0.1:8081
+    healthcheck:
+      test: ["CMD", "wget", "-qO/dev/null", "http://127.0.0.1:8080/"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 30s
+
+  # Nginx Gateway — serves user panel on :8080 and admin panel on :8081.
+  # Two server blocks inside one nginx; host mappings publish both ports.
+  # API locations are duplicated per panel so /api/admin/* is only
+  # reachable from the admin hostname and vice versa (returns 404 across
+  # panels), a defence-in-depth against cookie-scope or CORS mistakes.
+  gateway:
+    profiles: ["frontend", "full"]
+    build:
+      context: ../../apps/gateway
+      dockerfile: Dockerfile
+    container_name: tragge_gateway
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+    ports:
+      - "80:8080"
+      - "8080:8080"
+      - "8081:8081"
+    networks:
+      - platform_net
+    depends_on:
+      api-server:
+        condition: service_healthy
+      trading-core:
+        condition: service_healthy
+      user-frontend:
+        condition: service_healthy
+      admin-frontend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8080/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+

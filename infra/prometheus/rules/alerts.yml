@@ -1,0 +1,2304 @@
+# Prometheus Alert Rules for tragge Trading Tournament Platform
+# Generated: January 2026
+#
+# Alert severity levels:
+#   - critical: Immediate attention required, potential data loss or outage
+#   - warning: Degraded performance or approaching limits
+#   - info: Informational, no immediate action required
+#
+# Runbook base URL: /docs/runbook/
+# Dashboard base URL: http://grafana:3000/d/
+
+groups:
+  # =============================================================================
+  # SERVICE HEALTH ALERTS
+  # Monitor service availability, error rates, and latency
+  # =============================================================================
+  - name: tragge-service-health
+    interval: 30s
+    rules:
+      # ServiceDown: Service instance is down
+      - alert: ServiceDown
+        expr: up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: |
+            Service {{ $labels.job }} (instance: {{ $labels.instance }}) has been
+            unreachable for more than 1 minute.
+
+            Impact: Requests to this service will fail.
+
+            Check pod status: kubectl get pods -l app={{ $labels.job }}
+            Check logs: kubectl logs -l app={{ $labels.job }} --tail=100
+          runbook_url: "/docs/runbook/service-restart.md"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service={{ $labels.job }}"
+
+      # HighErrorRate: More than 5% of requests returning 5xx
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum by (service) (
+              rate(http_requests_total{status=~"5.."}[5m])
+            )
+            /
+            sum by (service) (
+              rate(http_requests_total[5m])
+            )
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "High error rate on {{ $labels.service }}"
+          description: |
+            Service {{ $labels.service }} is returning more than 5% 5xx errors.
+            Current error rate: {{ $value | humanizePercentage }}
+
+            Impact: Users may experience failures when using this service.
+
+            Check service logs: kubectl logs -l app={{ $labels.service }} --tail=200
+            Check recent deployments: kubectl rollout history deployment/{{ $labels.service }}
+          runbook_url: "/docs/runbook/incident-response.md#high-error-rate"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service={{ $labels.service }}"
+
+      # HighErrorRateByService: Service-specific high error rate (for namespaced metrics)
+      - alert: HighErrorRateByService
+        expr: |
+          (
+            sum by (job) (
+              rate({__name__=~".+_http_requests_total", status=~"5.."}[5m])
+            )
+            /
+            sum by (job) (
+              rate({__name__=~".+_http_requests_total"}[5m])
+            )
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "High error rate on {{ $labels.job }}"
+          description: |
+            Service {{ $labels.job }} is returning more than 5% 5xx errors.
+            Current error rate: {{ $value | humanizePercentage }}
+          runbook_url: "/docs/runbook/incident-response.md#high-error-rate"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service={{ $labels.job }}"
+
+      # HighLatency: P99 latency exceeds 500ms
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service, le) (
+              rate(http_request_duration_seconds_bucket[5m])
+            )
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High latency on {{ $labels.service }}"
+          description: |
+            Service {{ $labels.service }} has P99 latency exceeding 500ms.
+            Current P99 latency: {{ $value | humanizeDuration }}
+
+            Impact: Users may experience slow response times.
+
+            Check for:
+            - Database slow queries
+            - Resource constraints (CPU/memory)
+            - Network issues
+          runbook_url: "/docs/runbook/incident-response.md#high-latency"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service={{ $labels.service }}"
+
+      # HighLatencyByService: Service-specific high latency (for namespaced metrics)
+      - alert: HighLatencyByService
+        expr: |
+          histogram_quantile(0.99,
+            sum by (job, le) (
+              rate({__name__=~".+_http_request_duration_seconds_bucket"}[5m])
+            )
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High latency on {{ $labels.job }}"
+          description: |
+            Service {{ $labels.job }} has P99 latency exceeding 500ms.
+            Current P99 latency: {{ $value | humanizeDuration }}
+          runbook_url: "/docs/runbook/incident-response.md#high-latency"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service={{ $labels.job }}"
+
+      # EndpointDown: Blackbox probe failing
+      - alert: EndpointDown
+        expr: probe_success == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Endpoint {{ $labels.instance }} is down"
+          description: |
+            Endpoint {{ $labels.instance }} has been unreachable for more than 2 minutes.
+
+            Impact: External users cannot access this endpoint.
+
+            Check:
+            - DNS resolution
+            - Load balancer health
+            - Network connectivity
+          runbook_url: "/docs/runbook/incident-response.md"
+          dashboard_url: "http://grafana:3000/d/system-overview"
+
+      # HighMemoryUsage: Service memory usage above 90%
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            process_resident_memory_bytes
+            /
+            (container_spec_memory_limit_bytes > 0 or process_virtual_memory_max_bytes)
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High memory usage on {{ $labels.job }}"
+          description: |
+            Service {{ $labels.job }} memory usage is above 90%.
+
+            Impact: Service may be killed by OOM if memory continues to increase.
+
+            Consider:
+            - Checking for memory leaks
+            - Increasing memory limits
+            - Scaling horizontally
+          runbook_url: "/docs/runbook/scaling-guide.md"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service={{ $labels.job }}"
+
+  # =============================================================================
+  # WEBSOCKET ALERTS
+  # Monitor WebSocket connections for trade-bff
+  # =============================================================================
+  - name: tragge-websocket
+    interval: 30s
+    rules:
+      # WebSocketConnectionsDrop: Sudden drop in active connections
+      - alert: WebSocketConnectionsDrop
+        expr: |
+          delta(ws_connections_active{service="trade-bff"}[5m]) < -100
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "WebSocket connections dropped significantly"
+          description: |
+            WebSocket connections on trade-bff dropped by more than 100 in 5 minutes.
+            Connection delta: {{ $value }}
+
+            This could indicate:
+            - Service restart or deployment
+            - Network issues
+            - Client-side issues
+
+            Check trade-bff logs for disconnect reasons.
+          runbook_url: "/docs/runbook/incident-response.md#websocket-issues"
+          dashboard_url: "http://grafana:3000/d/websocket-realtime"
+
+      # WebSocketHighLatency: Message processing taking too long
+      - alert: WebSocketHighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum by (service, le) (
+              rate(ws_message_duration_seconds_bucket{service="trade-bff"}[5m])
+            )
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "WebSocket message latency is high"
+          description: |
+            WebSocket message processing P95 latency exceeds 100ms.
+            Current P95 latency: {{ $value | humanizeDuration }}
+
+            Impact: Traders may experience delayed order updates.
+
+            Check:
+            - Trading engine processing time
+            - Kafka consumer lag
+            - Network latency
+          runbook_url: "/docs/runbook/incident-response.md#high-latency"
+          dashboard_url: "http://grafana:3000/d/websocket-realtime"
+
+      # NoActiveConnections: No WebSocket connections during trading hours
+      - alert: NoActiveConnections
+        expr: |
+          ws_connections_active{service="trade-bff"} == 0
+          and ON() (hour() >= 9 and hour() < 16)
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "No active WebSocket connections during trading hours"
+          description: |
+            There are no active WebSocket connections to trade-bff during market hours.
+
+            This is unexpected and could indicate:
+            - Service not accepting connections
+            - DNS or routing issues
+            - All clients disconnected
+
+            Verify trade-bff is healthy and accepting connections.
+          runbook_url: "/docs/runbook/incident-response.md#trading-engine-down"
+          dashboard_url: "http://grafana:3000/d/websocket-realtime"
+
+      # WebSocketConnectionsNearLimit: Approaching connection limit
+      - alert: WebSocketConnectionsNearLimit
+        expr: |
+          ws_connections_active{service="trade-bff"} > 9000
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "WebSocket connections approaching limit"
+          description: |
+            Active WebSocket connections: {{ $value }}
+
+            Approaching the typical connection limit. Consider:
+            - Scaling trade-bff horizontally
+            - Reviewing connection pooling
+          runbook_url: "/docs/runbook/scaling-guide.md"
+          dashboard_url: "http://grafana:3000/d/websocket-realtime"
+
+  # =============================================================================
+  # DATABASE ALERTS
+  # Monitor PostgreSQL connection pools and performance
+  # =============================================================================
+  - name: tragge-database
+    interval: 30s
+    rules:
+      # DBConnectionPoolExhausted: Almost no connections available
+      - alert: DBConnectionPoolExhausted
+        expr: |
+          db_pool_connections{state="idle"} < 5
+          and
+          db_pool_connections{state="in_use"} > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Database connection pool exhausted for {{ $labels.service }}"
+          description: |
+            Service {{ $labels.service }} has fewer than 5 idle database connections.
+            Idle connections: {{ $value }}
+
+            Impact: New requests may fail with connection errors.
+
+            Immediate actions:
+            - Check for connection leaks
+            - Kill idle transactions: SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state = 'idle in transaction' AND query_start < now() - interval '5 minutes';
+            - Increase pool size if legitimate load
+          runbook_url: "/docs/runbook/database-recovery.md#connection-pool"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service={{ $labels.service }}"
+
+      # DBHighConnectionUsage: Connection pool utilization above 90%
+      - alert: DBHighConnectionUsage
+        expr: |
+          (
+            db_pool_connections{state="in_use"}
+            /
+            (db_pool_connections{state="in_use"} + db_pool_connections{state="idle"})
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High database connection usage for {{ $labels.service }}"
+          description: |
+            Service {{ $labels.service }} is using more than 90% of its connection pool.
+            Current usage: {{ $value | humanizePercentage }}
+
+            Impact: May run out of connections under load spikes.
+
+            Consider:
+            - Reviewing query performance
+            - Increasing pool size
+            - Implementing connection timeouts
+          runbook_url: "/docs/runbook/database-recovery.md#connection-pool"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service={{ $labels.service }}"
+
+      # DBSlowQueries: Too many slow queries
+      - alert: DBSlowQueries
+        expr: |
+          increase(pg_stat_statements_seconds_total{quantile="0.99"}[5m]) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High number of slow database queries"
+          description: |
+            Database is experiencing a high number of slow queries.
+
+            Check slow queries:
+            SELECT pid, now() - query_start AS duration, query
+            FROM pg_stat_activity
+            WHERE state = 'active'
+            AND now() - query_start > interval '5 seconds';
+
+            Consider:
+            - Adding missing indexes
+            - Optimizing query plans
+            - Reviewing recent changes
+          runbook_url: "/docs/runbook/database-recovery.md#slow-queries"
+          dashboard_url: "http://grafana:3000/d/postgres-overview"
+
+      # DBReplicationLag: Replica falling behind
+      - alert: DBReplicationLag
+        expr: |
+          pg_replication_lag_seconds > 10
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Database replication lag is high"
+          description: |
+            PostgreSQL replication lag is {{ $value | humanizeDuration }}.
+
+            Impact: Read replicas may serve stale data.
+
+            Check:
+            - Network connectivity to replica
+            - Replica resource usage
+            - Write load on primary
+          runbook_url: "/docs/runbook/database-recovery.md#replication"
+          dashboard_url: "http://grafana:3000/d/postgres-overview"
+
+      # PostgresDown: PostgreSQL not responding
+      - alert: PostgresDown
+        expr: |
+          pg_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PostgreSQL is down"
+          description: |
+            PostgreSQL database is not responding.
+
+            Impact: All services requiring database access will fail.
+
+            Immediate actions:
+            - Check pod status: kubectl get pods -l app=postgres
+            - Check logs: kubectl logs -l app=postgres --tail=100
+            - Check disk space: kubectl exec postgres-0 -- df -h
+          runbook_url: "/docs/runbook/database-recovery.md"
+          dashboard_url: "http://grafana:3000/d/postgres-overview"
+
+  # =============================================================================
+  # KAFKA/REDPANDA ALERTS
+  # Monitor message queue health and consumer lag
+  # =============================================================================
+  - name: tragge-kafka
+    interval: 30s
+    rules:
+      # KafkaConsumerLag: Consumer falling behind
+      - alert: KafkaConsumerLag
+        expr: |
+          kafka_consumer_lag{group!=""} > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Kafka consumer lag is high for {{ $labels.group }}"
+          description: |
+            Consumer group {{ $labels.group }} on topic {{ $labels.topic }} has lag of {{ $value }} messages.
+
+            Impact: Event processing is delayed.
+
+            Check:
+            - Consumer health: rpk group describe {{ $labels.group }}
+            - Processing throughput
+            - Consider scaling consumers
+          runbook_url: "/docs/runbook/incident-response.md#kafka-redpanda-issues"
+          dashboard_url: "http://grafana:3000/d/kafka-redpanda-health"
+
+      # KafkaConsumerLagCritical: Consumer severely behind
+      - alert: KafkaConsumerLagCritical
+        expr: |
+          kafka_consumer_lag{group!=""} > 10000
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Critical Kafka consumer lag for {{ $labels.group }}"
+          description: |
+            Consumer group {{ $labels.group }} on topic {{ $labels.topic }} has critical lag of {{ $value }} messages.
+
+            Impact: Significant event processing delay. Trading data may be severely outdated.
+
+            Immediate actions:
+            - Check consumer status: rpk group describe {{ $labels.group }}
+            - Check for consumer errors in logs
+            - Consider restarting stuck consumers
+            - Evaluate if partition reassignment needed
+          runbook_url: "/docs/runbook/incident-response.md#kafka-redpanda-issues"
+          dashboard_url: "http://grafana:3000/d/kafka-redpanda-health"
+
+      # KafkaBrokerDown: Broker not available
+      - alert: KafkaBrokerDown
+        expr: |
+          count(redpanda_cluster_brokers) < 1
+          or
+          redpanda_cluster_brokers < 1
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Kafka/Redpanda broker is down"
+          description: |
+            One or more Kafka/Redpanda brokers are unavailable.
+
+            Impact: Message production and consumption may fail.
+
+            Check:
+            - Broker status: rpk cluster health
+            - Pod status: kubectl get pods -l app=redpanda
+            - Broker logs: kubectl logs -l app=redpanda --tail=100
+          runbook_url: "/docs/runbook/incident-response.md#kafka-redpanda-issues"
+          dashboard_url: "http://grafana:3000/d/kafka-redpanda-health"
+
+      # KafkaUnderReplicatedPartitions: Partitions under-replicated
+      - alert: KafkaUnderReplicatedPartitions
+        expr: |
+          redpanda_kafka_under_replicated_replicas > 0
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Kafka partitions are under-replicated"
+          description: |
+            {{ $value }} partitions are under-replicated.
+
+            Impact: Data durability is reduced.
+
+            Check:
+            - Broker health: rpk cluster health
+            - Partition status: rpk cluster partition-status
+          runbook_url: "/docs/runbook/incident-response.md#kafka-redpanda-issues"
+          dashboard_url: "http://grafana:3000/d/kafka-redpanda-health"
+
+      # KafkaNoLeader: Topic partitions without a leader
+      - alert: KafkaNoLeader
+        expr: |
+          redpanda_kafka_partitions_without_leader > 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Kafka partitions have no leader"
+          description: |
+            {{ $value }} partitions have no elected leader.
+
+            Impact: These partitions are unavailable for reads and writes.
+
+            Immediate action required to restore cluster health.
+          runbook_url: "/docs/runbook/incident-response.md#kafka-redpanda-issues"
+          dashboard_url: "http://grafana:3000/d/kafka-redpanda-health"
+
+  # =============================================================================
+  # TRADING ENGINE ALERTS
+  # Monitor order processing and market data freshness
+  # =============================================================================
+  - name: tragge-trading
+    interval: 30s
+    rules:
+      # HighOrderLatency: Order-to-fill latency too high
+      - alert: HighOrderLatency
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (
+              rate(order_fill_latency_seconds_bucket[5m])
+            )
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High order-to-fill latency"
+          description: |
+            Order-to-fill P99 latency is {{ $value | humanizeDuration }}, exceeding 500ms threshold.
+
+            Impact: Traders may experience delayed order execution.
+
+            Check:
+            - Trading engine logs
+            - Kafka consumer lag on orders.v1
+            - Database write performance
+          runbook_url: "/docs/runbook/incident-response.md#trading-engine-down"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=trading-engine"
+
+      # OrderProcessingBacklog: Too many pending orders
+      - alert: OrderProcessingBacklog
+        expr: |
+          orders_pending_total > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Order processing backlog is high"
+          description: |
+            There are {{ $value }} pending orders waiting to be processed.
+
+            Impact: Orders may be delayed in execution.
+
+            Check:
+            - Trading engine throughput
+            - Kafka consumer lag
+            - Consider scaling trading-engine
+          runbook_url: "/docs/runbook/scaling-guide.md"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=trading-engine"
+
+      # PriceDataStale: Market data not updating
+      - alert: PriceDataStale
+        expr: |
+          (time() - price_last_update_timestamp) > 60
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Price data is stale for {{ $labels.symbol }}"
+          description: |
+            Price data for symbol {{ $labels.symbol }} has not been updated for more than 60 seconds.
+            Last update: {{ $value | humanizeDuration }} ago
+
+            Impact: Traders may be using outdated prices for decisions.
+
+            Check:
+            - market-ingestor health and logs
+            - Provider connectivity (Massive/TwelveData)
+            - Redis tick storage
+          runbook_url: "/docs/runbook/incident-response.md#market-data-gaps"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=market-ingestor"
+
+      # NoOrdersProcessed: No orders during trading hours
+      - alert: NoOrdersProcessed
+        expr: |
+          rate(orders_processed_total[5m]) == 0
+          and ON() (hour() >= 9 and hour() < 16)
+        for: 10m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "No orders being processed during trading hours"
+          description: |
+            No orders have been processed in the last 10 minutes during market hours.
+
+            This could indicate:
+            - Trading engine is stuck
+            - No active traders
+            - Kafka connectivity issues
+
+            Verify trading-engine is healthy and processing messages.
+          runbook_url: "/docs/runbook/incident-response.md#trading-engine-down"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=trading-engine"
+
+      # TradingEngineDown: Trading engine not responding
+      - alert: TradingEngineDown
+        expr: |
+          up{job="trading-engine"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Trading engine is down"
+          description: |
+            The trading engine service is not responding.
+
+            Impact: No orders can be processed. Trading is halted.
+
+            Immediate actions:
+            - Check pod status: kubectl get pods -l app=trading-engine
+            - Check logs: kubectl logs -l app=trading-engine --tail=100
+            - Consider pausing active contests
+          runbook_url: "/docs/runbook/incident-response.md#trading-engine-down"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=trading-engine"
+
+      # MarketIngestorDown: Market data feed is down
+      - alert: MarketIngestorDown
+        expr: |
+          up{job="market-ingestor"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Market ingestor is down"
+          description: |
+            The market ingestor service is not responding.
+
+            Impact: No new price data will be available. Existing prices will become stale.
+
+            Check:
+            - Pod status: kubectl get pods -l app=market-ingestor
+            - Provider status (Massive, TwelveData)
+            - API key validity
+          runbook_url: "/docs/runbook/incident-response.md#market-data-gaps"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=market-ingestor"
+
+      # ProviderFallback: Market data provider switched to fallback
+      - alert: ProviderFallback
+        expr: |
+          market_ingestor_provider_fallback_active == 1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Market ingestor using fallback provider"
+          description: |
+            Market ingestor has switched to fallback provider (TwelveData).
+            Primary provider (Massive) may be having issues.
+
+            Check:
+            - TwelveData API status
+            - market-ingestor logs for connection errors
+            - API rate limits
+          runbook_url: "/docs/runbook/incident-response.md#market-data-gaps"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=market-ingestor"
+
+  # =============================================================================
+  # BUSINESS ALERTS
+  # Monitor business-critical functionality
+  # =============================================================================
+  - name: tragge-business
+    interval: 60s
+    rules:
+      # ContestStartFailed: Contest did not start at scheduled time
+      - alert: HighErrorRateUserFacing
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5..", service=~"user-bff|trade-bff"}[5m]))
+            /
+            sum(rate(http_requests_total{service=~"user-bff|trade-bff"}[5m]))
+          ) > 0.01
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "User-facing error rate is elevated"
+          description: |
+            User-facing services (user-bff, trade-bff) have error rate above 1%.
+            Current error rate: {{ $value | humanizePercentage }}
+
+            Impact: Users are experiencing errors.
+
+            Check service logs for specific error patterns.
+          runbook_url: "/docs/runbook/incident-response.md"
+          dashboard_url: "http://grafana:3000/d/system-overview"
+
+      # LeaderboardWorkerDown: Leaderboard worker not responding
+      - alert: LeaderboardWorkerDown
+        expr: |
+          up{job="leaderboard-worker"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Leaderboard worker is down"
+          description: |
+            The leaderboard worker service is not responding.
+
+            Impact: Leaderboards will not be updated. Contest finalization will not work.
+
+            Check:
+            - Pod status: kubectl get pods -l app=leaderboard-worker
+            - Logs: kubectl logs -l app=leaderboard-worker --tail=100
+          runbook_url: "/docs/runbook/incident-response.md"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=leaderboard-worker"
+
+      # RegistrationBlocked: Users cannot register
+      - alert: RegistrationBlocked
+        expr: |
+          rate(http_requests_total{path="/register", status="200"}[10m]) == 0
+          and
+          rate(http_requests_total{path="/register"}[10m]) > 0
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "User registration may be blocked"
+          description: |
+            No successful registrations in the last 10 minutes, but attempts are being made.
+
+            Check:
+            - user-bff logs for registration errors
+            - Database connectivity
+            - Email service (if verification required)
+          runbook_url: "/docs/runbook/incident-response.md#authentication-failures"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=user-bff"
+
+      # LoginFailureSpike: Unusual number of login failures
+      - alert: LoginFailureSpike
+        expr: |
+          (
+            rate(http_requests_total{path="/login", status="401"}[5m])
+            /
+            rate(http_requests_total{path="/login"}[5m])
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High login failure rate detected"
+          description: |
+            More than 50% of login attempts are failing.
+            Current failure rate: {{ $value | humanizePercentage }}
+
+            This could indicate:
+            - Brute force attack
+            - Client-side issues
+            - Authentication system problems
+
+            Check user-bff logs and consider rate limiting if attack detected.
+          runbook_url: "/docs/runbook/incident-response.md#authentication-failures"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=user-bff"
+
+  # =============================================================================
+  # REDIS ALERTS
+  # Monitor Redis cache and session storage
+  # =============================================================================
+  - name: tragge-redis
+    interval: 30s
+    rules:
+      # RedisDown: Redis not responding
+      - alert: RedisDown
+        expr: |
+          redis_up == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Redis is down"
+          description: |
+            Redis is not responding.
+
+            Impact: Sessions, caching, and leaderboards will fail.
+
+            Check:
+            - Pod status: kubectl get pods -l app=redis
+            - Memory usage
+            - Disk space (if persistence enabled)
+          runbook_url: "/docs/runbook/incident-response.md"
+          dashboard_url: "http://grafana:3000/d/system-overview"
+
+      # RedisHighMemory: Redis memory usage high
+      - alert: RedisHighMemory
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Redis memory usage is high"
+          description: |
+            Redis memory usage is above 90%.
+            Current usage: {{ $value | humanizePercentage }}
+
+            Consider:
+            - Reviewing TTL policies
+            - Increasing Redis memory limit
+            - Checking for memory leaks in cached data
+          runbook_url: "/docs/runbook/scaling-guide.md"
+          dashboard_url: "http://grafana:3000/d/system-overview"
+
+      # RedisConnectionsHigh: Too many Redis connections
+      - alert: RedisConnectionsHigh
+        expr: |
+          redis_connected_clients > 1000
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Redis has many active connections"
+          description: |
+            Redis has {{ $value }} active connections.
+
+            Consider:
+            - Connection pooling in services
+            - Checking for connection leaks
+            - Increasing maxclients if needed
+          runbook_url: "/docs/runbook/scaling-guide.md"
+          dashboard_url: "http://grafana:3000/d/system-overview"
+
+  # =============================================================================
+  # POSTGRESQL HA ALERTS
+  # Monitor PostgreSQL High Availability with Patroni
+  # =============================================================================
+  - name: tragge-postgres-ha
+    interval: 30s
+    rules:
+      # PostgresReplicaLagHigh: Replica replication lag exceeds threshold
+      - alert: PostgresReplicaLagHigh
+        expr: |
+          pg_replication_lag_seconds > 10
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PostgreSQL replica lag is high ({{ $labels.instance }})"
+          description: |
+            PostgreSQL replica {{ $labels.instance }} has replication lag of {{ $value | humanizeDuration }}.
+
+            Impact: Read replicas may serve stale data. Read-after-write consistency affected.
+
+            Check:
+            - Network connectivity between primary and replica
+            - Replica resource usage (CPU, I/O)
+            - Write load on primary
+            - WAL generation rate: SELECT pg_current_wal_lsn();
+
+            Commands:
+            - Check replication status: patronictl list
+            - Check replica lag: SELECT * FROM pg_stat_replication;
+          runbook_url: "/docs/runbook/postgres-ha.md#replication-lag"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PostgresReplicaLagWarning: Replica lag approaching threshold
+      - alert: PostgresReplicaLagWarning
+        expr: |
+          pg_replication_lag_seconds > 5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL replica lag is elevated ({{ $labels.instance }})"
+          description: |
+            PostgreSQL replica {{ $labels.instance }} has replication lag of {{ $value | humanizeDuration }}.
+
+            This may indicate high write load or network issues.
+
+            Monitor for further degradation.
+          runbook_url: "/docs/runbook/postgres-ha.md#replication-lag"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PostgresReplicaLagBytes: Replica lag in bytes too high
+      - alert: PostgresReplicaLagBytes
+        expr: |
+          pg_replication_lag_bytes > 104857600
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL replica WAL lag is high ({{ $labels.instance }})"
+          description: |
+            PostgreSQL replica {{ $labels.instance }} is {{ $value | humanize1024 }}B behind in WAL replay.
+
+            Impact: Replica may not be suitable for failover until caught up.
+
+            Check:
+            - Network bandwidth between primary and replica
+            - I/O performance on replica
+          runbook_url: "/docs/runbook/postgres-ha.md#replication-lag"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PostgresNoReplica: No replicas connected to primary
+      - alert: PostgresNoReplica
+        expr: |
+          pg_stat_replication_count == 0
+          and
+          pg_replication_is_replica == 0
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PostgreSQL primary has no replicas connected"
+          description: |
+            The PostgreSQL primary has no streaming replicas connected.
+
+            Impact: No failover capability. Single point of failure.
+
+            Check:
+            - Replica pod status: kubectl get pods -l app=postgres-ha
+            - Replication slots: SELECT * FROM pg_replication_slots;
+            - Patroni cluster: patronictl list
+          runbook_url: "/docs/runbook/postgres-ha.md#no-replicas"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PostgresReplicaNotStreaming: Replica not in streaming state
+      - alert: PostgresReplicaNotStreaming
+        expr: |
+          pg_stat_replication_state{state!="streaming"} == 1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL replica not streaming ({{ $labels.client_addr }})"
+          description: |
+            PostgreSQL replica {{ $labels.client_addr }} is in state '{{ $labels.state }}' instead of 'streaming'.
+
+            Valid states: startup, catchup, streaming, backup, stopping.
+            Current state indicates replica may be catching up or having issues.
+
+            Check:
+            - Replica logs for errors
+            - Network connectivity
+            - WAL segment availability
+          runbook_url: "/docs/runbook/postgres-ha.md#replica-states"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PatroniClusterUnhealthy: Patroni cluster not healthy
+      - alert: PatroniClusterUnhealthy
+        expr: |
+          patroni_cluster_running_members < 3
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Patroni cluster has fewer than 3 running members"
+          description: |
+            Patroni cluster has only {{ $value }} running members.
+            Expected: 3 (1 primary + 2 replicas)
+
+            Impact: Reduced availability and failover capability.
+
+            Check:
+            - Pod status: kubectl get pods -l app=postgres-ha
+            - Patroni status: patronictl list
+            - etcd health: etcdctl endpoint health
+          runbook_url: "/docs/runbook/postgres-ha.md#cluster-health"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PatroniNoLeader: No Patroni leader elected
+      - alert: PatroniNoLeader
+        expr: |
+          patroni_cluster_has_leader == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Patroni cluster has no leader"
+          description: |
+            No PostgreSQL primary has been elected by Patroni.
+
+            Impact: Write operations will fail. Application may experience downtime.
+
+            Immediate actions:
+            - Check Patroni logs: kubectl logs -l app=postgres-ha -c postgres
+            - Check etcd: etcdctl endpoint health
+            - Manual intervention may be required
+          runbook_url: "/docs/runbook/postgres-ha.md#no-leader"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PatroniLeaderSwitch: Patroni leader changed (failover occurred)
+      - alert: PatroniLeaderSwitch
+        expr: |
+          changes(patroni_cluster_leader_info[5m]) > 0
+        for: 0m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Patroni cluster leader changed"
+          description: |
+            A Patroni failover has occurred. The cluster leader has changed.
+
+            Impact: Brief interruption to write operations during failover.
+
+            Actions:
+            - Verify application reconnected to new primary
+            - Check old primary for issues
+            - Review timeline and switchover reason: patronictl history
+          runbook_url: "/docs/runbook/postgres-ha.md#failover"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PostgresPrimaryDown: PostgreSQL primary is down
+      - alert: PostgresPrimaryDown
+        expr: |
+          up{job="postgres-ha", role="primary"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PostgreSQL primary is down"
+          description: |
+            The PostgreSQL primary instance is not responding.
+
+            Impact: Write operations will fail until failover completes.
+
+            Patroni should automatically initiate failover to a replica.
+
+            Check:
+            - Patroni status: patronictl list
+            - Primary pod logs: kubectl logs postgres-ha-0 -c postgres
+            - etcd connectivity
+          runbook_url: "/docs/runbook/postgres-ha.md#primary-down"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PostgresReplicaDown: PostgreSQL replica is down
+      - alert: PostgresReplicaDown
+        expr: |
+          up{job="postgres-ha", role="replica"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL replica is down ({{ $labels.instance }})"
+          description: |
+            PostgreSQL replica {{ $labels.instance }} is not responding.
+
+            Impact: Reduced read capacity and failover capability.
+
+            Check:
+            - Pod status: kubectl get pod {{ $labels.pod }}
+            - Pod logs: kubectl logs {{ $labels.pod }} -c postgres
+            - Patroni status: patronictl list
+          runbook_url: "/docs/runbook/postgres-ha.md#replica-down"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PostgresReplicationSlotInactive: Replication slot not being used
+      - alert: PostgresReplicationSlotInactive
+        expr: |
+          pg_replication_slots_active == 0
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL replication slot inactive ({{ $labels.slot_name }})"
+          description: |
+            Replication slot {{ $labels.slot_name }} has been inactive for 10 minutes.
+
+            Impact: WAL files will accumulate, potentially filling disk.
+
+            Check:
+            - Is replica supposed to be connected?
+            - If slot is no longer needed: SELECT pg_drop_replication_slot('{{ $labels.slot_name }}');
+          runbook_url: "/docs/runbook/postgres-ha.md#replication-slots"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PostgresReplicationSlotLag: Replication slot retaining too much WAL
+      - alert: PostgresReplicationSlotLag
+        expr: |
+          pg_replication_slots_retained_bytes > 1073741824
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL replication slot retaining excessive WAL ({{ $labels.slot_name }})"
+          description: |
+            Replication slot {{ $labels.slot_name }} is retaining {{ $value | humanize1024 }}B of WAL.
+
+            Impact: Disk space consumption. May fill disk if replica doesn't catch up.
+
+            Check:
+            - Replica connection status
+            - Network issues between primary and replica
+            - Consider dropping slot if replica is permanently gone
+          runbook_url: "/docs/runbook/postgres-ha.md#replication-slots"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # EtcdUnhealthy: etcd cluster not healthy
+      - alert: EtcdUnhealthy
+        expr: |
+          etcd_server_has_leader == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "etcd cluster has no leader"
+          description: |
+            The etcd cluster used by Patroni has no leader.
+
+            Impact: Patroni cannot perform leader election or failover.
+
+            Check:
+            - etcd pod status: kubectl get pods -l app=etcd
+            - etcd health: etcdctl endpoint health
+            - etcd member list: etcdctl member list
+          runbook_url: "/docs/runbook/postgres-ha.md#etcd-issues"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # EtcdMemberDown: etcd member is down
+      - alert: EtcdMemberDown
+        expr: |
+          up{job="etcd"} == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "etcd member is down ({{ $labels.instance }})"
+          description: |
+            etcd member {{ $labels.instance }} is not responding.
+
+            Impact: Reduced etcd cluster availability.
+
+            Check:
+            - Pod status: kubectl get pods -l app=etcd
+            - Pod logs: kubectl logs -l app=etcd
+          runbook_url: "/docs/runbook/postgres-ha.md#etcd-issues"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PgBouncerDown: PgBouncer is down
+      - alert: PgBouncerDown
+        expr: |
+          up{job=~"pgbouncer.*"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "PgBouncer is down ({{ $labels.job }})"
+          description: |
+            PgBouncer {{ $labels.job }} is not responding.
+
+            Impact: Database connections through this pool will fail.
+
+            Check:
+            - Pod status: kubectl get pods -l app=pgbouncer
+            - PgBouncer logs: kubectl logs -l app=pgbouncer
+          runbook_url: "/docs/runbook/postgres-ha.md#pgbouncer-issues"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PgBouncerPoolExhausted: PgBouncer connection pool nearly exhausted
+      - alert: PgBouncerPoolExhausted
+        expr: |
+          (pgbouncer_pools_server_active_connections + pgbouncer_pools_server_idle_connections)
+          /
+          pgbouncer_pools_pool_size
+          > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PgBouncer connection pool nearly exhausted ({{ $labels.database }})"
+          description: |
+            PgBouncer pool for {{ $labels.database }} is over 90% utilized.
+
+            Current utilization: {{ $value | humanizePercentage }}
+
+            Consider:
+            - Increasing pool_size in pgbouncer.ini
+            - Reviewing application connection patterns
+            - Checking for connection leaks
+          runbook_url: "/docs/runbook/postgres-ha.md#pgbouncer-issues"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PgBouncerWaitingClients: Clients waiting for connection
+      - alert: PgBouncerWaitingClients
+        expr: |
+          pgbouncer_pools_client_waiting_connections > 10
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PgBouncer has waiting clients ({{ $labels.database }})"
+          description: |
+            {{ $value }} clients are waiting for a connection in PgBouncer pool {{ $labels.database }}.
+
+            Impact: Application latency will increase.
+
+            Consider:
+            - Increasing pool_size
+            - Reducing query duration
+            - Scaling horizontally
+          runbook_url: "/docs/runbook/postgres-ha.md#pgbouncer-issues"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PostgresDatabaseSize: Database size growing rapidly
+      - alert: PostgresDatabaseSizeWarning
+        expr: |
+          pg_database_size_bytes{datname="app"} > 10737418240
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL database size exceeds 10GB"
+          description: |
+            Database 'app' size is {{ $value | humanize1024 }}B.
+
+            Consider:
+            - Reviewing data retention policies
+            - Archiving old data
+            - Checking for bloat: SELECT * FROM pgstattuple('tablename');
+          runbook_url: "/docs/runbook/postgres-ha.md#database-size"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PostgresConnectionsHigh: High number of database connections
+      - alert: PostgresConnectionsHigh
+        expr: |
+          sum(pg_stat_activity_count) by (datname) > 150
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High number of PostgreSQL connections"
+          description: |
+            Database has {{ $value }} active connections.
+            Max connections: 200
+
+            Consider:
+            - Using PgBouncer connection pooling
+            - Reviewing application connection settings
+            - Identifying connection leaks
+          runbook_url: "/docs/runbook/postgres-ha.md#connection-management"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PostgresLongRunningQueries: Queries running too long
+      - alert: PostgresLongRunningQueries
+        expr: |
+          pg_stat_activity_max_tx_duration{state="active"} > 300
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL has long-running queries"
+          description: |
+            Queries have been running for more than 5 minutes.
+
+            Check active queries:
+            SELECT pid, now() - query_start AS duration, query
+            FROM pg_stat_activity
+            WHERE state = 'active'
+            ORDER BY duration DESC;
+
+            Consider terminating if blocking: SELECT pg_terminate_backend(pid);
+          runbook_url: "/docs/runbook/postgres-ha.md#long-queries"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+      # PostgresIdleInTransaction: Idle transactions holding locks
+      - alert: PostgresIdleInTransaction
+        expr: |
+          pg_stat_activity_count{state="idle in transaction"} > 5
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "PostgreSQL has idle transactions"
+          description: |
+            {{ $value }} connections are idle in transaction.
+
+            Impact: May hold locks and block other queries.
+
+            Check idle transactions:
+            SELECT pid, now() - xact_start AS duration, query
+            FROM pg_stat_activity
+            WHERE state = 'idle in transaction'
+            ORDER BY duration DESC;
+
+            Terminate if blocking: SELECT pg_terminate_backend(pid);
+          runbook_url: "/docs/runbook/postgres-ha.md#idle-transactions"
+          dashboard_url: "http://grafana:3000/d/postgres-ha"
+
+  # =============================================================================
+  # NOTIFICATION ALERTS
+  # Monitor notification service health and delivery
+  # NOTE: These alerts are configured to avoid notification loops - they should
+  # be routed to a separate channel or use different notification mechanisms
+  # =============================================================================
+  - name: tragge-notifications
+    interval: 30s
+    rules:
+      # NotificationServiceDown: Notification service is not responding
+      - alert: NotificationServiceDown
+        expr: |
+          notification_sent_total == 0 and up{job=~".*"} == 1
+        for: 10m
+        labels:
+          severity: warning
+          team: platform
+          inhibit_notification: "true"
+        annotations:
+          summary: "Notification service appears inactive"
+          description: |
+            No notifications have been sent in the last 10 minutes while services are running.
+            This could indicate notification service misconfiguration or failure.
+
+            Check:
+            - NOTIFICATION_ENABLED environment variable
+            - Discord webhook URL validity
+            - Resend API key validity
+          runbook_url: "/docs/runbook/notifications.md"
+
+      # NotificationHighFailureRate: Many notifications failing
+      - alert: NotificationHighFailureRate
+        expr: |
+          (
+            sum(rate(notification_sent_total{status="failure"}[5m]))
+            /
+            sum(rate(notification_sent_total[5m]))
+          ) > 0.3
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          inhibit_notification: "true"
+        annotations:
+          summary: "High notification failure rate"
+          description: |
+            More than 30% of notifications are failing.
+            Failure rate: {{ $value | humanizePercentage }}
+
+            Check:
+            - Discord webhook status
+            - Resend API status
+            - Network connectivity
+          runbook_url: "/docs/runbook/notifications.md#high-failure-rate"
+
+      # NotificationQueueBacklog: Async notification queue growing
+      - alert: NotificationQueueBacklog
+        expr: notification_queue_size > 50
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          inhibit_notification: "true"
+        annotations:
+          summary: "Notification queue backlog"
+          description: |
+            Notification async queue has {{ $value }} pending messages.
+
+            This could indicate:
+            - Rate limiting from Discord/Resend
+            - Network issues
+            - High alert volume
+
+            Consider increasing NOTIFICATION_ASYNC_WORKERS or investigating alert storm.
+          runbook_url: "/docs/runbook/notifications.md#queue-backlog"
+
+      # DiscordWebhookRateLimited: Discord rate limit hit
+      - alert: DiscordWebhookRateLimited
+        expr: |
+          increase(notification_errors_total{channel="discord", error_type="rate_limited"}[5m]) > 5
+        for: 1m
+        labels:
+          severity: info
+          team: platform
+          inhibit_notification: "true"
+        annotations:
+          summary: "Discord webhook rate limited"
+          description: |
+            Discord webhook is being rate limited.
+            Consider reducing alert frequency or aggregating similar alerts.
+
+      # NotificationCircuitBreakerOpen: Notification circuit breaker tripped
+      - alert: NotificationCircuitBreakerOpen
+        expr: circuit_breaker_state{name=~"discord.*|resend.*"} == 1
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+          inhibit_notification: "true"
+        annotations:
+          summary: "Notification circuit breaker open ({{ $labels.name }})"
+          description: |
+            Circuit breaker {{ $labels.name }} is open.
+            Notifications via this channel will fail fast until recovery.
+
+            Check external service status:
+            - Discord: https://discordstatus.com
+            - Resend: https://resend-status.com
+
+  # =============================================================================
+  # CIRCUIT BREAKER ALERTS
+  # Monitor circuit breaker states, failure rates, and stability
+  # =============================================================================
+  - name: tragge-circuit-breaker
+    interval: 15s
+    rules:
+      # CircuitBreakerOpen: Circuit breaker is in open state
+      - alert: CircuitBreakerOpen
+        expr: |
+          tragge_circuit_breaker_state == 1
+        for: 30s
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Circuit breaker '{{ $labels.name }}' is OPEN"
+          description: |
+            Circuit breaker {{ $labels.name }} has been in OPEN state for more than 30 seconds.
+
+            Impact: All requests to this dependency are failing fast with ErrCircuitOpen.
+            The dependent service or resource is considered unavailable.
+
+            Current state values:
+            - 0 = closed (healthy)
+            - 1 = open (tripped, failing fast)
+            - 2 = half-open (testing recovery)
+
+            Immediate actions:
+            1. Check the health of the underlying dependency:
+               - Database: Check PostgreSQL connectivity and performance
+               - Redis: Check Redis connectivity and memory
+               - Kafka: Check Redpanda/Kafka broker status
+               - External API: Check third-party service status
+
+            2. Review recent errors in service logs:
+               kubectl logs -l app={{ $labels.job }} --tail=200 | grep -i "{{ $labels.name }}"
+
+            3. Check dependency metrics for the root cause:
+               - Connection timeouts
+               - High latency
+               - Authentication failures
+
+            4. If dependency is healthy, consider resetting circuit breaker:
+               curl -X POST http://{{ $labels.instance }}/admin/circuits/{{ $labels.name }}/reset
+          runbook_url: "/docs/runbook/circuit-breaker.md#open-circuit"
+          dashboard_url: "http://grafana:3000/d/circuit-breakers?var-circuit={{ $labels.name }}"
+
+      # CircuitBreakerHighFailureRate: Failure rate exceeding threshold
+      - alert: CircuitBreakerHighFailureRate
+        expr: |
+          tragge_circuit_breaker_failure_rate > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High failure rate on circuit '{{ $labels.name }}' ({{ $value | humanizePercentage }})"
+          description: |
+            Circuit breaker {{ $labels.name }} has a failure rate exceeding 50% over the last 5 minutes.
+            Current failure rate: {{ $value | humanizePercentage }}
+
+            Impact: The circuit may trip soon if failures continue. Dependent operations
+            are experiencing degraded performance.
+
+            This alert fires BEFORE the circuit opens, giving you time to investigate
+            and potentially prevent a full outage.
+
+            Check for:
+            1. Dependency health issues (database, cache, message queue)
+            2. Network connectivity problems
+            3. Resource exhaustion (connections, memory, CPU)
+            4. Configuration changes that may have caused issues
+
+            Metrics to review:
+            - Total failures: tragge_circuit_breaker_failures_total{name="{{ $labels.name }}"}
+            - Total successes: tragge_circuit_breaker_successes_total{name="{{ $labels.name }}"}
+            - Call latency: tragge_circuit_breaker_call_duration_seconds{name="{{ $labels.name }}"}
+
+            Commands:
+            - View circuit status: curl http://{{ $labels.instance }}/healthz/dependencies
+            - Check service logs: kubectl logs -l app={{ $labels.job }} --tail=100
+          runbook_url: "/docs/runbook/circuit-breaker.md#high-failure-rate"
+          dashboard_url: "http://grafana:3000/d/circuit-breakers?var-circuit={{ $labels.name }}"
+
+      # CircuitBreakerFlapping: Circuit is changing state too frequently
+      - alert: CircuitBreakerFlapping
+        expr: |
+          increase(tragge_circuit_breaker_state_changes_total[10m]) > 5
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Circuit breaker '{{ $labels.name }}' is flapping ({{ $value }} state changes in 10m)"
+          description: |
+            Circuit breaker {{ $labels.name }} has changed state more than 5 times in the last 10 minutes.
+            State changes in last 10 minutes: {{ $value }}
+
+            Impact: The underlying dependency is unstable. The circuit is rapidly
+            opening and closing, which indicates an intermittent failure condition.
+
+            This pattern suggests:
+            1. The dependency is partially available but unreliable
+            2. Network issues causing intermittent connectivity
+            3. Resource limits being hit sporadically (connection pools, rate limits)
+            4. The circuit breaker thresholds may need tuning
+
+            Investigation steps:
+            1. Check dependency health and logs
+            2. Review network latency and packet loss
+            3. Check for resource exhaustion patterns
+            4. Consider adjusting circuit breaker configuration:
+               - Increase failure threshold
+               - Extend reset timeout
+               - Adjust success threshold for half-open state
+
+            Circuit breaker config:
+            - MaxFailures: Number of failures before opening
+            - ResetTimeout: Time before attempting recovery
+            - SuccessThreshold: Successes needed to close from half-open
+          runbook_url: "/docs/runbook/circuit-breaker.md#flapping"
+          dashboard_url: "http://grafana:3000/d/circuit-breakers?var-circuit={{ $labels.name }}"
+
+      # BulkheadSaturation: Bulkhead concurrent request limit nearly reached
+      - alert: BulkheadSaturation
+        expr: |
+          (
+            tragge_bulkhead_in_use
+            /
+            tragge_bulkhead_max
+          ) > 0.8
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Bulkhead '{{ $labels.name }}' is {{ $value | humanizePercentage }} saturated"
+          description: |
+            Bulkhead {{ $labels.name }} is more than 80% full.
+            Current utilization: {{ $value | humanizePercentage }}
+
+            Impact: The bulkhead is approaching its maximum concurrent request limit.
+            New requests may soon be rejected with ErrBulkheadFull, even if the
+            dependency is healthy.
+
+            Bulkheads prevent cascade failures by limiting concurrent requests to
+            a dependency. High saturation indicates either:
+            1. Increased load on the system
+            2. Slow dependency responses causing request buildup
+            3. Bulkhead size may be too small for normal traffic
+
+            Investigation steps:
+            1. Check dependency latency:
+               - High latency = requests queue up waiting for responses
+               - Look for slow queries, network issues, or overloaded services
+
+            2. Review request patterns:
+               - Traffic spike?
+               - Batch job running?
+               - Client retry storms?
+
+            3. Consider scaling:
+               - Increase bulkhead size if dependency can handle more load
+               - Scale the service horizontally
+               - Add caching to reduce dependency calls
+
+            Metrics to check:
+            - tragge_circuit_breaker_call_duration_seconds{name="{{ $labels.name }}"}
+            - Rate of incoming requests to the service
+          runbook_url: "/docs/runbook/circuit-breaker.md#bulkhead-saturation"
+          dashboard_url: "http://grafana:3000/d/circuit-breakers?var-circuit={{ $labels.name }}"
+
+      # CircuitBreakerRejectionSpike: Sudden increase in rejected requests
+      - alert: CircuitBreakerRejectionSpike
+        expr: |
+          increase(tragge_circuit_breaker_rejections_total[5m]) > 100
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Circuit '{{ $labels.name }}' rejected {{ $value }} requests in 5 minutes"
+          description: |
+            Circuit breaker {{ $labels.name }} has rejected more than 100 requests
+            in the last 5 minutes due to being in OPEN state.
+
+            Impact: A significant number of requests are failing fast. Users or
+            downstream services may be experiencing errors.
+
+            This alert indicates sustained traffic hitting an open circuit.
+
+            Actions:
+            1. Investigate why the circuit opened (check CircuitBreakerOpen alert)
+            2. Check if the dependency has recovered
+            3. Consider if traffic needs to be redirected or rate limited
+            4. If dependency is healthy, reset the circuit manually
+          runbook_url: "/docs/runbook/circuit-breaker.md#rejection-spike"
+          dashboard_url: "http://grafana:3000/d/circuit-breakers?var-circuit={{ $labels.name }}"
+
+      # CircuitBreakerSlowRecovery: Circuit has been open for extended period
+      - alert: CircuitBreakerSlowRecovery
+        expr: |
+          tragge_circuit_breaker_state == 1
+        for: 5m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Circuit '{{ $labels.name }}' has been OPEN for more than 5 minutes"
+          description: |
+            Circuit breaker {{ $labels.name }} has been in OPEN state for more than 5 minutes.
+
+            Impact: Extended outage for this dependency. All dependent functionality
+            is unavailable. This is a critical situation requiring immediate attention.
+
+            The circuit should normally recover within the reset timeout period
+            (typically 30-60 seconds). Extended open state indicates:
+            1. Dependency is completely unavailable
+            2. Recovery attempts in half-open state are failing
+            3. Underlying infrastructure issue
+
+            Escalation required:
+            1. Page on-call engineer if not already done
+            2. Check infrastructure status (cloud provider, network)
+            3. Check dependent service status pages
+            4. Consider enabling fallback mechanisms or degraded mode
+
+            Recovery steps:
+            1. Identify root cause of dependency failure
+            2. Restore dependency health
+            3. Monitor circuit transition to half-open then closed
+            4. Post-incident review to prevent recurrence
+          runbook_url: "/docs/runbook/circuit-breaker.md#slow-recovery"
+          dashboard_url: "http://grafana:3000/d/circuit-breakers?var-circuit={{ $labels.name }}"
+
+      # CircuitBreakerTimeoutSpike: High number of timeouts
+      - alert: CircuitBreakerTimeoutSpike
+        expr: |
+          increase(tragge_circuit_breaker_timeouts_total[5m]) > 50
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Circuit '{{ $labels.name }}' has {{ $value }} timeouts in 5 minutes"
+          description: |
+            Circuit breaker {{ $labels.name }} has recorded more than 50 timeouts
+            in the last 5 minutes.
+
+            Impact: Requests to this dependency are taking too long and timing out.
+            This causes degraded user experience and may trip the circuit.
+
+            Timeouts indicate:
+            1. Dependency is overloaded and responding slowly
+            2. Network latency issues
+            3. Resource contention (database locks, connection pools)
+            4. Circuit breaker timeout may be too aggressive
+
+            Investigation:
+            1. Check dependency performance metrics
+            2. Review database query performance (slow query log)
+            3. Check network latency between services
+            4. Consider increasing timeout if legitimate slow operations
+
+            Metrics to review:
+            - tragge_circuit_breaker_call_duration_seconds{name="{{ $labels.name }}"}
+            - Database/Redis/Kafka latency metrics
+          runbook_url: "/docs/runbook/circuit-breaker.md#timeouts"
+          dashboard_url: "http://grafana:3000/d/circuit-breakers?var-circuit={{ $labels.name }}"
+
+      # CircuitBreakerHalfOpenStuck: Circuit stuck in half-open state
+      - alert: CircuitBreakerHalfOpenStuck
+        expr: |
+          tragge_circuit_breaker_state == 2
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Circuit '{{ $labels.name }}' stuck in HALF-OPEN state"
+          description: |
+            Circuit breaker {{ $labels.name }} has been in HALF-OPEN state for more than 2 minutes.
+
+            Impact: The circuit is testing recovery but hasn't succeeded. Limited
+            requests are being allowed through, but not enough successes to close
+            the circuit.
+
+            Half-open state means:
+            - The reset timeout elapsed and circuit is testing recovery
+            - Limited test requests are being sent to the dependency
+            - Success threshold not yet reached to close the circuit
+
+            This extended half-open state indicates:
+            1. Dependency is partially working but not fully healthy
+            2. Intermittent failures preventing success threshold
+            3. Load is too low to generate enough test requests
+
+            Actions:
+            1. Check dependency health - is it partially degraded?
+            2. Review test request results in logs
+            3. Consider adjusting success threshold if appropriate
+          runbook_url: "/docs/runbook/circuit-breaker.md#half-open"
+          dashboard_url: "http://grafana:3000/d/circuit-breakers?var-circuit={{ $labels.name }}"
+
+  # =============================================================================
+  # PHASE 11 SCALABILITY ALERTS
+  # Monitor contest isolation, caching, rate limiting, leaderboard broadcasts,
+  # and connection distribution optimizations introduced in Phase 11.
+  # =============================================================================
+  - name: tragge-phase11-scalability
+    interval: 30s
+    rules:
+      # -----------------------------------------------------------------------
+      # Contest Isolation Alerts
+      # -----------------------------------------------------------------------
+
+      # ContestHubIndexMissing: SendToContest latency spike indicates fallback to O(N) scan
+      - alert: ContestHubIndexMissing
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (
+              rate(tragge_trade_bff_http_request_duration_seconds_bucket{path="/ws/trade"}[5m])
+            )
+          ) > 0.1
+          and
+          increase(tragge_trade_bff_ws_connections_per_contest[5m]) == 0
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Contest hub index may be missing — SendToContest degraded"
+          description: |
+            WebSocket trade endpoint P99 latency has exceeded 100ms while no new
+            contest connections are being indexed. This pattern suggests the
+            contestClients map is not being populated, causing SendToContest to
+            fall back to an O(N) scan over all clients instead of O(1) lookup.
+
+            Impact: Increased broadcast latency for all contest participants.
+            Message delivery may be delayed under high connection counts.
+
+            Investigation:
+            1. Check trade-bff logs for contest client registration errors
+            2. Verify contestClients map is being populated on client connect
+            3. Check for panics or goroutine leaks in the hub run loop
+            4. Review recent deployments that may have broken contest indexing
+          runbook_url: "/docs/runbook/incident-response.md#contest-hub-degraded"
+          dashboard_url: "http://grafana:3000/d/websocket-realtime?var-service=trade-bff"
+
+      # UnfilteredSymbolBroadcast: Client receiving symbols outside their contest
+      - alert: UnfilteredSymbolBroadcast
+        expr: |
+          sum by (job) (
+            rate(tragge_trade_bff_http_requests_total{path="/ws/trade", status="200"}[5m])
+          ) > 0
+          and
+          sum by (job) (
+            increase(tragge_trade_bff_unfiltered_symbol_broadcasts_total[5m])
+          ) > 0
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Clients receiving unfiltered symbol broadcasts"
+          description: |
+            One or more clients are receiving symbol data for symbols that are not
+            in their contest's allowed symbol set. This indicates the contest symbol
+            cache is returning nil (fallback to all symbols) or the filtering logic
+            has a bug.
+
+            Impact: Clients receive unnecessary data, wasting bandwidth and
+            potentially exposing market data they should not see.
+
+            Investigation:
+            1. Check trade-bff logs for "falling back to all symbols" messages
+            2. Verify contest_symbols table has correct entries for active contests
+            3. Check database connectivity from trade-bff replicas
+            4. Review contest symbol cache hit/miss rates
+          runbook_url: "/docs/runbook/incident-response.md#symbol-filter-failure"
+          dashboard_url: "http://grafana:3000/d/websocket-realtime?var-service=trade-bff"
+
+      # -----------------------------------------------------------------------
+      # Cache Alerts
+      # -----------------------------------------------------------------------
+
+      # ContestCacheHitRateLow: Contest cache not being effective
+      - alert: ContestCacheHitRateLow
+        expr: |
+          (
+            rate(trading_engine_contest_cache_hits_total[5m])
+            /
+            (
+              rate(trading_engine_contest_cache_hits_total[5m])
+              +
+              rate(trading_engine_contest_cache_misses_total[5m])
+            )
+          ) < 0.80
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Contest cache hit rate below 80%"
+          description: |
+            The trading engine contest cache hit rate has dropped below 80%
+            for more than 5 minutes.
+            Current hit rate: {{ $value | humanizePercentage }}
+
+            Impact: Increased database queries for contest lookups, adding latency
+            to order processing and potentially overloading the database.
+
+            Possible causes:
+            1. Cache TTL is too short for the number of active contests
+            2. Cache was recently cleared or service restarted
+            3. Large number of new contests being created (cold cache)
+            4. Cache size limit reached, causing evictions
+
+            Investigation:
+            1. Check trading_engine_contest_cache_size gauge
+            2. Review cache configuration (TTL, max size)
+            3. Check database query latency for contest lookups
+            4. Verify CACHE_ENABLED environment variable is true
+          runbook_url: "/docs/runbook/incident-response.md#cache-degraded"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=trading-engine"
+
+      # ParticipantCacheHitRateLow: Participant cache not being effective
+      - alert: ParticipantCacheHitRateLow
+        expr: |
+          (
+            rate(trading_engine_participant_cache_hits_total[5m])
+            /
+            (
+              rate(trading_engine_participant_cache_hits_total[5m])
+              +
+              rate(trading_engine_participant_cache_misses_total[5m])
+            )
+          ) < 0.85
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Participant cache hit rate below 85%"
+          description: |
+            The trading engine participant cache hit rate has dropped below 85%
+            for more than 5 minutes.
+            Current hit rate: {{ $value | humanizePercentage }}
+
+            Impact: Each cache miss triggers a database query to verify contest
+            participation, adding latency to order processing. At high order
+            volumes, this can saturate database connections.
+
+            Possible causes:
+            1. Cache TTL is too short relative to contest duration
+            2. Many new participants joining (cold cache entries)
+            3. Cache evictions due to memory pressure
+            4. Cache disabled or misconfigured
+
+            Investigation:
+            1. Check trading_engine_participant_cache_size gauge
+            2. Check trading_engine_db_queries_saved_total counter trend
+            3. Review database connection pool utilization
+            4. Verify CACHE_ENABLED environment variable is true
+          runbook_url: "/docs/runbook/incident-response.md#cache-degraded"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=trading-engine"
+
+      # CacheDisabledInProduction: Cache explicitly disabled in production
+      - alert: CacheDisabledInProduction
+        expr: |
+          trading_engine_contest_cache_size == 0
+          and
+          trading_engine_participant_cache_size == 0
+          and
+          rate(trading_engine_contest_cache_misses_total[5m]) > 0
+          and
+          rate(trading_engine_contest_cache_hits_total[5m]) == 0
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+        annotations:
+          summary: "Cache appears disabled in production — all lookups are cache misses"
+          description: |
+            Both contest and participant caches have zero entries while cache misses
+            are actively occurring and no cache hits are being recorded. This strongly
+            indicates CACHE_ENABLED=false in the trading engine configuration.
+
+            Impact: Every order requires database queries for contest and participant
+            validation, significantly increasing latency and database load.
+            This is a critical performance regression in production.
+
+            Immediate actions:
+            1. Verify CACHE_ENABLED environment variable: kubectl get deploy trading-engine -o yaml | grep CACHE
+            2. Check recent configuration changes or deployments
+            3. If intentionally disabled, ensure database can handle the load
+            4. Re-enable cache: set CACHE_ENABLED=true and restart trading-engine
+
+            Metrics to review:
+            - trading_engine_contest_cache_size (should be > 0)
+            - trading_engine_db_queries_saved_total (should be increasing)
+            - Database connection pool utilization
+          runbook_url: "/docs/runbook/incident-response.md#cache-disabled"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=trading-engine"
+
+      # -----------------------------------------------------------------------
+      # Rate Limiting Alerts
+      # -----------------------------------------------------------------------
+
+      # HighRateLimitRejections: Too many orders being rate-limited
+      - alert: HighRateLimitRejections
+        expr: |
+          (
+            sum by (contest_id) (
+              rate(trading_engine_orders_rate_limited_total{scope="contest"}[5m])
+            )
+            /
+            (
+              sum by (contest_id) (
+                rate(trading_engine_orders_rate_limited_total{scope="contest"}[5m])
+              )
+              +
+              sum by (contest_id) (
+                rate(tragge_ratelimit_allowed_total[5m])
+              )
+            )
+          ) > 0.10
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "High rate limit rejections in contest {{ $labels.contest_id }}"
+          description: |
+            More than 10% of orders in contest {{ $labels.contest_id }} are being
+            rejected due to rate limiting.
+            Current rejection rate: {{ $value | humanizePercentage }}
+
+            Impact: Legitimate user orders may be rejected. Users will experience
+            failed order submissions and degraded trading experience.
+
+            Possible causes:
+            1. Rate limit threshold is too low for the contest size
+            2. One or more users are submitting orders at abusive rates
+            3. Dynamic rate scaling is not adjusting to participant count
+            4. Bot or automated trading activity exceeding limits
+
+            Investigation:
+            1. Check per-user rate limit rejections for outliers
+            2. Review trading_engine_rate_limit_contest_effective gauge
+            3. Check contest participant count vs configured rate limit
+            4. Review order submission patterns for suspicious activity
+          runbook_url: "/docs/runbook/incident-response.md#rate-limit-rejections"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=trading-engine"
+
+      # ContestRateLimitNotScaled: Large contest using base rate limit
+      - alert: ContestRateLimitNotScaled
+        expr: |
+          trading_engine_rate_limit_contest_effective <= 10
+          and
+          tragge_trade_bff_ws_connections_per_contest > 100
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Contest {{ $labels.contest_id }} has >100 participants but base rate limit"
+          description: |
+            Contest {{ $labels.contest_id }} has more than 100 active WebSocket
+            connections but the effective rate limit is still at the base level
+            ({{ $value }} orders/sec). Dynamic rate scaling should have increased
+            the limit proportional to participant count.
+
+            Impact: The rate limit is too restrictive for the number of participants,
+            causing legitimate orders to be rejected unnecessarily.
+
+            Investigation:
+            1. Check if dynamic rate scaling is enabled in trading engine config
+            2. Verify the rate limit scaling formula is correct
+            3. Check for errors in the rate limit adjustment logic
+            4. Review trading_engine_rate_limit_contest_effective metric history
+          runbook_url: "/docs/runbook/incident-response.md#rate-limit-scaling"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=trading-engine"
+
+      # -----------------------------------------------------------------------
+      # Leaderboard Alerts
+      # -----------------------------------------------------------------------
+
+      # LeaderboardBroadcastStorm: Debounce not working, too many broadcasts
+      - alert: LeaderboardBroadcastStorm
+        expr: |
+          sum by (contest_id) (
+            rate(tragge_trade_bff_leaderboard_broadcasts_total[30s])
+          ) > 1
+        for: 30s
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Leaderboard broadcast storm in contest {{ $labels.contest_id }}"
+          description: |
+            Contest {{ $labels.contest_id }} is receiving more than 1 leaderboard
+            broadcast per second sustained for 30 seconds. The debounce mechanism
+            should coalesce multiple PnL updates into a single broadcast per
+            debounce interval (default: 2 seconds).
+
+            Impact: Excessive WebSocket messages to all contest participants,
+            wasting bandwidth and causing UI flickering. May also increase
+            leaderboard HTTP endpoint load if clients refetch on each signal.
+
+            Investigation:
+            1. Check LEADERBOARD_BROADCAST_DEBOUNCE configuration (should be ≥2s)
+            2. Verify debounce timer logic in trade-bff PnL consumer
+            3. Check for multiple trade-bff instances broadcasting independently
+            4. Review PnL delta event rate from trading engine
+          runbook_url: "/docs/runbook/incident-response.md#leaderboard-storm"
+          dashboard_url: "http://grafana:3000/d/websocket-realtime?var-service=trade-bff"
+
+      # LeaderboardHTTPOverload: Leaderboard endpoint receiving too many requests
+      - alert: LeaderboardHTTPOverload
+        expr: |
+          sum by (job) (
+            rate(tragge_trade_bff_http_requests_total{path=~"/api/trade/leaderboard.*"}[1m])
+          ) > 100
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Leaderboard HTTP endpoint exceeding 100 req/sec"
+          description: |
+            The leaderboard HTTP endpoint is receiving more than 100 requests per
+            second for more than 2 minutes. The smart broadcast mechanism should
+            reduce HTTP polling by sending leaderboard data via WebSocket signals.
+
+            Current request rate: {{ $value | humanize }} req/sec
+
+            Impact: High HTTP load on the leaderboard endpoint increases latency
+            for all leaderboard queries and wastes server resources.
+
+            Possible causes:
+            1. Smart broadcast not including top_entries in WebSocket signals
+            2. Frontend not using WebSocket-delivered leaderboard data
+            3. Frontend polling interval too aggressive
+            4. WebSocket connection failures causing fallback to HTTP polling
+
+            Investigation:
+            1. Check if leaderboard_updated WS messages include top_entries
+            2. Review frontend leaderboard polling logic
+            3. Check WebSocket connection stability
+            4. Verify leaderboard manager is properly initialized
+          runbook_url: "/docs/runbook/incident-response.md#leaderboard-http-overload"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=trade-bff"
+
+      # SnapshotWriterBacklog: Snapshot writes falling behind
+      - alert: SnapshotWriterBacklog
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (
+              rate(leaderboard_worker_snapshot_write_duration_seconds_bucket[5m])
+            )
+          ) > 30
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Leaderboard snapshot writes are falling behind"
+          description: |
+            Snapshot write P99 latency exceeds 30 seconds, which is longer than
+            the default snapshot interval (30s). This means the snapshot writer
+            cannot keep up with the configured write frequency.
+
+            Impact: Leaderboard snapshots become stale. If the service restarts,
+            leaderboard data may be lost for the period where snapshots were
+            not written.
+
+            Possible causes:
+            1. Database write latency increased (check PostgreSQL performance)
+            2. Too many active contests generating concurrent snapshots
+            3. Large contest participant counts making snapshot payload heavy
+            4. Database connection pool exhaustion
+
+            Investigation:
+            1. Check PostgreSQL slow query log for leaderboard_snapshots inserts
+            2. Review database connection pool utilization
+            3. Check number of active contests vs snapshot interval
+            4. Consider increasing SNAPSHOT_INTERVAL or reducing SNAPSHOT_TOP_N
+          runbook_url: "/docs/runbook/incident-response.md#snapshot-backlog"
+          dashboard_url: "http://grafana:3000/d/system-overview?var-service=leaderboard-worker"
+
+      # -----------------------------------------------------------------------
+      # Connection Alerts
+      # -----------------------------------------------------------------------
+
+      # ContestConnectionImbalance: Uneven connection distribution across contests
+      - alert: ContestConnectionImbalance
+        expr: |
+          max by (job) (tragge_trade_bff_ws_connections_per_contest)
+          > 3 * (
+            avg by (job) (tragge_trade_bff_ws_connections_per_contest) > 0
+          )
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "Contest connection imbalance detected — possible sticky session failure"
+          description: |
+            One contest has more than 3x the average number of WebSocket connections
+            per contest. This may indicate a load balancing or sticky session issue
+            where connections are not being distributed evenly.
+
+            Maximum connections in a single contest: {{ $value | humanize }}
+
+            Impact: Uneven connection distribution can cause resource exhaustion on
+            specific trade-bff instances, leading to degraded performance for
+            participants in the overloaded contest.
+
+            Possible causes:
+            1. Sticky session configuration routing all users to one instance
+            2. Popular contest attracting disproportionate traffic
+            3. Load balancer not distributing WebSocket upgrades evenly
+            4. Some trade-bff instances not accepting new connections
+
+            Investigation:
+            1. Check per-instance connection counts across trade-bff pods
+            2. Review load balancer sticky session configuration
+            3. Compare contest participant counts in the database
+            4. Check if any trade-bff instances are in degraded state
+          runbook_url: "/docs/runbook/scaling-guide.md#connection-imbalance"
+          dashboard_url: "http://grafana:3000/d/websocket-realtime?var-service=trade-bff"
+
+      # WebSocketConnectionDrop: Excessive connection drops during steady state
+      - alert: WebSocketConnectionDrop
+        expr: |
+          (
+            max_over_time(tragge_trade_bff_ws_connections_per_contest[1m])
+            -
+            min_over_time(tragge_trade_bff_ws_connections_per_contest[1m])
+          )
+          /
+          max_over_time(tragge_trade_bff_ws_connections_per_contest[1m])
+          > 0.05
+          and
+          max_over_time(tragge_trade_bff_ws_connections_per_contest[1m]) > 20
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "More than 5% WebSocket connections dropped in 1 minute"
+          description: |
+            More than 5% of WebSocket connections in a contest dropped within a
+            1-minute window during steady state (at least 20 active connections).
+            Connection drop rate: {{ $value | humanizePercentage }}
+
+            Impact: Users experience disconnections and must reconnect, losing
+            real-time price updates and potentially missing trading opportunities.
+
+            Possible causes:
+            1. trade-bff pod restart or crash
+            2. Network instability between clients and the gateway
+            3. Nginx proxy timeout configuration too aggressive
+            4. Memory pressure causing connection eviction
+            5. Ping/pong keepalive timeout mismatch
+
+            Investigation:
+            1. Check trade-bff pod status and recent restarts
+            2. Review gateway/nginx error logs for upstream timeouts
+            3. Check trade-bff memory usage and OOM events
+            4. Verify WebSocket ping interval (54s) vs proxy timeout settings
+            5. Check client-side error logs for disconnect reasons
+          runbook_url: "/docs/runbook/incident-response.md#websocket-drops"
+          dashboard_url: "http://grafana:3000/d/websocket-realtime?var-service=trade-bff"
+
+  # =============================================================================
+  # SCHEDULER & TOURNAMENT ECONOMICS ALERTS
+  # Monitor scheduler health and tournament financial metrics
+  # =============================================================================
+  - name: tragge-scheduler-economics
+    interval: 30s
+    rules:
+      # NoTournamentsCreated: No tournaments created in 15 minutes
+      - alert: NoTournamentsCreated
+        expr: |
+          increase(tragge_scheduler_tournaments_created_total[15m]) == 0
+          and on() (count(up{job="contest-scheduler"} == 1) > 0)
+        for: 15m
+        labels:
+          severity: warning
+          team: platform
+        annotations:
+          summary: "No tournaments created in the last 15 minutes"
+          description: |
+            The contest-scheduler has not created any tournaments in the last 15 minutes
+            while the service is reporting as up.
+            The calendar processor may be stuck or all templates may be inactive.
+
+            Check scheduler health: curl http://contest-scheduler:8087/health/calendar
+            Check logs: kubectl logs -l app=contest-scheduler --tail=200
+          runbook_url: "/docs/runbook/service-restart.md"
+          dashboard_url: "http://grafana:3000/d/scheduler-health"
+
+      # PrizePoolMismatch: Stored vs calculated prize pool divergence
+      - alert: PrizePoolMismatch
+        expr: increase(tragge_tournament_prize_pool_mismatch_total[5m]) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: trading
+        annotations:
+          summary: "Prize pool calculation mismatch detected"
+          description: |
+            A mismatch was detected between the stored prize pool (accumulated during
+            participant joins) and the calculated prize pool (participants * entry_fee * fee_rate).
+            This may indicate a bug in the join/payment flow or data corruption.
+
+            Investigate recent contest finalizations in the leaderboard-worker logs.
+            Check contest_settlements table for affected contests.
+          runbook_url: "/docs/runbook/incident-response.md"
+          dashboard_url: "http://grafana:3000/d/scheduler-health"
+
+      # CommissionRateDeviation: Commission rate deviates from expected 20%
+      - alert: CommissionRateDeviation
+        expr: |
+          (
+            sum(tragge_tournament_prize_pool_total)
+            /
+            (sum(tragge_tournament_prize_pool_total) + tragge_tournament_commission_earned_total)
+          ) < 0.75
+          or
+          (
+            sum(tragge_tournament_prize_pool_total)
+            /
+            (sum(tragge_tournament_prize_pool_total) + tragge_tournament_commission_earned_total)
+          ) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+        annotations:
+          summary: "Commission rate deviates from expected 20%"
+          description: |
+            The ratio of net prize pool to gross prize pool deviates significantly from the
+            expected 80% (20% commission). Current ratio: {{ $value | humanizePercentage }}.
+
+            Expected: ~80% of gross goes to prize pool (20% commission).
+            Check if commission_rate or platform_fee_bps was changed on recent templates.
+          dashboard_url: "http://grafana:3000/d/scheduler-health"

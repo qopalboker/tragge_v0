@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tragge.io/schemas/position_update.v1.json",
+  "title": "PositionUpdate",
+  "description": "User position update event",
+  "type": "object",
+  "required": ["user_id", "contest_id", "positions"],
+  "additionalProperties": false,
+  "properties": {
+    "user_id": {
+      "type": "string",
+      "description": "User identifier"
+    },
+    "contest_id": {
+      "type": "string",
+      "description": "Contest identifier"
+    },
+    "positions": {
+      "type": "array",
+      "description": "List of current positions",
+      "items": {
+        "type": "object",
+        "required": ["position_id", "symbol", "side", "qty", "entry_price", "mark_price", "unrealized_pnl_pct", "realized_pnl_pct", "qty_used"],
+        "additionalProperties": false,
+        "properties": {
+          "position_id": {
+            "type": "string",
+            "description": "Unique position identifier"
+          },
+          "symbol": {
+            "type": "string",
+            "description": "Trading symbol"
+          },
+          "side": {
+            "type": "string",
+            "enum": ["BUY", "SELL"],
+            "description": "Position side (LONG=BUY, SHORT=SELL)"
+          },
+          "qty": {
+            "type": "integer",
+            "description": "Current position quantity"
+          },
+          "entry_price": {
+            "type": "number",
+            "description": "Average entry price"
+          },
+          "mark_price": {
+            "type": "number",
+            "description": "Current mark price"
+          },
+          "unrealized_pnl_pct": {
+            "type": "number",
+            "description": "Unrealized PnL as percentage"
+          },
+          "realized_pnl_pct": {
+            "type": "number",
+            "description": "Realized PnL as percentage"
+          },
+          "qty_used": {
+            "type": "integer",
+            "description": "Quantity used in margin calculation"
+          }
+        }
+      }
+    }
+  }
+}

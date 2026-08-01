@@ -1,0 +1,20 @@
+{
+  "default_spread_bps": 10,
+  "symbol_spreads": {
+    "EURUSD": 2,
+    "GBPUSD": 3,
+    "USDJPY": 2,
+    "BTCUSD": 15,
+    "ETHUSD": 20,
+    "XAUUSD": 25,
+    "USDTRY": 50
+  },
+  "asset_class_defaults": {
+    "forex_major": 3,
+    "forex_minor": 8,
+    "forex_exotic": 30,
+    "crypto_major": 15,
+    "crypto_alt": 30,
+    "commodities": 20
+  }
+}

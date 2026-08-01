@@ -1,0 +1,444 @@
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/component: connection-pooler
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  # Run 2 replicas for high availability
+  # PgBouncer is stateless and can run multiple instances
+  replicas: 2
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+      maxSurge: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pgbouncer
+
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pgbouncer
+        app.kubernetes.io/component: connection-pooler
+      annotations:
+        # Prometheus scraping annotations
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9127"
+        prometheus.io/path: "/metrics"
+
+    spec:
+      # Security context for the pod
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        seccompProfile:
+          type: RuntimeDefault
+
+      # Anti-affinity to spread replicas across nodes
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: pgbouncer
+                topologyKey: kubernetes.io/hostname
+
+      # Init container to prepare configuration with proper permissions
+      initContainers:
+        - name: init-config
+          image: busybox:1.36
+          command:
+            - sh
+            - -c
+            - |
+              # Copy config files to emptyDir volume
+              cp /etc/pgbouncer-config/pgbouncer.ini /etc/pgbouncer/pgbouncer.ini
+              cp /etc/pgbouncer-secrets/userlist.txt /etc/pgbouncer/userlist.txt
+
+              # Set proper permissions (PgBouncer requires 0600 for userlist.txt)
+              chmod 600 /etc/pgbouncer/userlist.txt
+              chmod 644 /etc/pgbouncer/pgbouncer.ini
+
+              # Verify files exist
+              ls -la /etc/pgbouncer/
+          volumeMounts:
+            - name: pgbouncer-config-volume
+              mountPath: /etc/pgbouncer-config
+            - name: pgbouncer-secrets-volume
+              mountPath: /etc/pgbouncer-secrets
+            - name: config
+              mountPath: /etc/pgbouncer
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            capabilities:
+              drop:
+                - ALL
+
+      containers:
+        # Main PgBouncer container
+        - name: pgbouncer
+          image: bitnami/pgbouncer:1.22.1
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: pgbouncer
+              containerPort: 6432
+              protocol: TCP
+
+          # Environment variables for Bitnami PgBouncer image
+          env:
+            # Use our custom configuration file
+            - name: PGBOUNCER_CONF_FILE
+              value: /etc/pgbouncer/pgbouncer.ini
+
+            # Database connection settings
+            - name: POSTGRESQL_HOST
+              value: postgres
+            - name: POSTGRESQL_PORT
+              value: "5432"
+            - name: POSTGRESQL_DATABASE
+              value: app
+
+            # PgBouncer settings (these override pgbouncer.ini if set)
+            - name: PGBOUNCER_PORT
+              value: "6432"
+            - name: PGBOUNCER_POOL_MODE
+              value: transaction
+            - name: PGBOUNCER_MAX_CLIENT_CONN
+              value: "400"
+            - name: PGBOUNCER_DEFAULT_POOL_SIZE
+              value: "50"
+            - name: PGBOUNCER_MIN_POOL_SIZE
+              value: "10"
+            - name: PGBOUNCER_RESERVE_POOL_SIZE
+              value: "10"
+            - name: PGBOUNCER_MAX_DB_CONNECTIONS
+              value: "100"
+
+            # Authentication - use scram-sha-256 with auth_query
+            - name: PGBOUNCER_AUTH_TYPE
+              value: scram-sha-256
+            - name: PGBOUNCER_AUTH_FILE
+              value: /etc/pgbouncer/userlist.txt
+            - name: PGBOUNCER_AUTH_QUERY
+              value: "SELECT username, password FROM public.pgbouncer_get_auth($1)"
+            # Auth user credentials for auth_query
+            - name: PGBOUNCER_AUTH_USER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-secrets
+                  key: PGBOUNCER_AUTH_USER
+
+            # Statistics
+            - name: PGBOUNCER_STATS_USERS
+              value: postgres
+            - name: PGBOUNCER_ADMIN_USERS
+              value: postgres
+
+          # Volume mounts
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pgbouncer
+              readOnly: true
+            - name: tmp
+              mountPath: /tmp
+
+          # Resource limits
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+
+          # Liveness probe - check if PgBouncer is responding
+          livenessProbe:
+            tcpSocket:
+              port: pgbouncer
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+            successThreshold: 1
+
+          # Readiness probe - check if PgBouncer can connect to PostgreSQL
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  # Use pg_isready equivalent for PgBouncer
+                  # Check if we can connect to pgbouncer database (admin console)
+                  PGPASSWORD="" psql -h 127.0.0.1 -p 6432 -U postgres -d pgbouncer -c "SHOW POOLS" > /dev/null 2>&1
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+            successThreshold: 1
+
+          # Startup probe for slower starts
+          startupProbe:
+            tcpSocket:
+              port: pgbouncer
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 12
+
+          # Security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+
+        # PgBouncer Exporter sidecar for Prometheus metrics
+        - name: pgbouncer-exporter
+          image: prometheuscommunity/pgbouncer-exporter:v0.7.0
+          imagePullPolicy: IfNotPresent
+
+          ports:
+            - name: metrics
+              containerPort: 9127
+              protocol: TCP
+
+          env:
+            # Connection string to PgBouncer admin console
+            # Format: postgresql://user:password@host:port/dbname
+            - name: PGBOUNCER_EXPORTER_HOST
+              value: "127.0.0.1"
+            - name: PGBOUNCER_EXPORTER_PORT
+              value: "6432"
+            - name: PGBOUNCER_EXPORTER_DATABASE
+              value: "pgbouncer"
+            - name: PGBOUNCER_EXPORTER_USER
+              value: "postgres"
+
+            # Exporter settings
+            - name: PGBOUNCER_EXPORTER_WEB_LISTEN_ADDRESS
+              value: ":9127"
+            - name: PGBOUNCER_EXPORTER_WEB_TELEMETRY_PATH
+              value: "/metrics"
+
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "64Mi"
+              cpu: "50m"
+
+          # Liveness probe
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+
+          # Readiness probe
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: metrics
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+
+          # Security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            runAsUser: 1001
+            capabilities:
+              drop:
+                - ALL
+            readOnlyRootFilesystem: true
+
+      # Volumes
+      volumes:
+        # ConfigMap containing pgbouncer.ini
+        - name: pgbouncer-config-volume
+          configMap:
+            name: pgbouncer-config
+            items:
+              - key: pgbouncer.ini
+                path: pgbouncer.ini
+
+        # Secret containing userlist.txt
+        - name: pgbouncer-secrets-volume
+          secret:
+            secretName: pgbouncer-secrets
+            items:
+              - key: userlist.txt
+                path: userlist.txt
+
+        # EmptyDir for runtime config (with proper permissions)
+        - name: config
+          emptyDir: {}
+
+        # EmptyDir for temporary files
+        - name: tmp
+          emptyDir: {}
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/component: connection-pooler
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  type: ClusterIP
+
+  # Session affinity not needed - PgBouncer is stateless
+  sessionAffinity: None
+
+  ports:
+    # PgBouncer PostgreSQL protocol port
+    - name: pgbouncer
+      port: 6432
+      targetPort: pgbouncer
+      protocol: TCP
+
+    # Prometheus metrics port
+    - name: metrics
+      port: 9127
+      targetPort: metrics
+      protocol: TCP
+
+  selector:
+    app.kubernetes.io/name: pgbouncer
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: pgbouncer
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  # Ensure at least 1 PgBouncer instance is always available during disruptions
+  minAvailable: 1
+
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pgbouncer
+
+---
+# ServiceMonitor for Prometheus Operator
+# This enables automatic scraping of PgBouncer metrics
+# Only apply if Prometheus Operator is installed in your cluster
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: pgbouncer
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/part-of: tragge-platform
+    prometheus: kube-prometheus
+spec:
+  # Select the pgbouncer service
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pgbouncer
+
+  # Scrape metrics endpoint
+  endpoints:
+    - port: metrics
+      path: /metrics
+      interval: 30s
+      scrapeTimeout: 10s
+      scheme: http
+
+  # Namespace selector
+  namespaceSelector:
+    matchNames:
+      - tragge
+
+---
+# NetworkPolicy to restrict access to PgBouncer
+# Only allow connections from application pods
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: pgbouncer-access
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: pgbouncer
+
+  policyTypes:
+    - Ingress
+
+  ingress:
+    # Allow PostgreSQL connections from backend services
+    - from:
+        # user-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: user-bff
+        # trade-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trade-bff
+        # admin-bff
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: admin-bff
+        # trading-engine
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-engine
+        # market-ingestor
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: market-ingestor
+        # leaderboard-worker
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: leaderboard-worker
+      ports:
+        - protocol: TCP
+          port: 6432
+
+    # Allow Prometheus to scrape metrics
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9127

@@ -1,0 +1,94 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api-server
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: api-server
+    app.kubernetes.io/component: api
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: api-server
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: api-server
+        app.kubernetes.io/component: api
+        app.kubernetes.io/part-of: tragge-platform
+    spec:
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+      containers:
+        - name: api-server
+          image: tragge/api-server:latest
+          ports:
+            - name: user-bff
+              containerPort: 8081
+            - name: admin-bff
+              containerPort: 8083
+            - name: payment
+              containerPort: 8091
+          envFrom:
+            - configMapRef:
+                name: tragge-config
+          env:
+            - name: DB_MAX_OPEN_CONNS
+              value: "15"
+            - name: DB_MAX_IDLE_CONNS
+              value: "5"
+            - name: GOGC
+              value: "50"
+            - name: GOMEMLIMIT
+              value: "200MiB"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: user-bff
+            initialDelaySeconds: 10
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: user-bff
+            initialDelaySeconds: 5
+            periodSeconds: 10
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: api-server
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: api-server
+spec:
+  selector:
+    app.kubernetes.io/name: api-server
+  ports:
+    - name: user-bff
+      port: 8081
+      targetPort: 8081
+    - name: admin-bff
+      port: 8083
+      targetPort: 8083
+    - name: payment
+      port: 8091
+      targetPort: 8091

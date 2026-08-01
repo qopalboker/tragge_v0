@@ -1,0 +1,147 @@
+# Grafana datasource provisioning for tragge platform
+# Last updated: January 2026
+apiVersion: 1
+
+datasources:
+  # ===========================================================================
+  # PostgreSQL - business metrics database
+  # ===========================================================================
+  - name: PostgreSQL
+    type: postgres
+    access: proxy
+    url: postgres:5432
+    uid: postgres
+    database: app
+    user: ${POSTGRES_READONLY_USER:-tragge_readonly}
+    editable: false
+    jsonData:
+      sslmode: prefer
+      maxOpenConns: 10
+      maxIdleConns: 5
+      connMaxLifetime: 14400
+      postgresVersion: 1600
+      timescaledb: false
+    secureJsonData:
+      password: $__file{/run/secrets/postgres_readonly_password}
+
+  # ===========================================================================
+  # Prometheus - primary metrics store
+  # ===========================================================================
+  - name: Prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    uid: prometheus
+    isDefault: true
+    editable: false
+    jsonData:
+      httpMethod: POST
+      manageAlerts: true
+      prometheusType: Prometheus
+      prometheusVersion: "2.48.0"
+      # Enable exemplars for trace correlation
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+          urlDisplayLabel: View Trace
+
+  # ===========================================================================
+  # Loki - log aggregation
+  # ===========================================================================
+  - name: Loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    uid: loki
+    editable: false
+    jsonData:
+      maxLines: 1000
+      httpHeaderName1: X-Scope-OrgID
+      # Derived fields for log-to-trace correlation
+      derivedFields:
+        # Match trace_id in JSON logs: "trace_id":"abc123..."
+        - name: TraceID
+          matcherRegex: '"trace_id":"([a-f0-9]{32})"'
+          url: '$${__value.raw}'
+          datasourceUid: tempo
+          urlDisplayLabel: View Trace
+        # Also match trace_id as a key=value format
+        - name: TraceID_Alt
+          matcherRegex: 'trace_id=([a-f0-9]{32})'
+          url: '$${__value.raw}'
+          datasourceUid: tempo
+          urlDisplayLabel: View Trace
+        # Link to user activity (for user_id in logs)
+        - name: UserID
+          matcherRegex: '"user_id":"([^"]+)"'
+          url: '/d/user-activity?var-user_id=$${__value.raw}'
+          urlDisplayLabel: View User Activity
+        # Link to contest (for contest_id in logs)
+        - name: ContestID
+          matcherRegex: '"contest_id":"([^"]+)"'
+          url: '/d/contest-dashboard?var-contest_id=$${__value.raw}'
+          urlDisplayLabel: View Contest
+    secureJsonData:
+      httpHeaderValue1: tragge
+
+  # ===========================================================================
+  # Tempo - distributed tracing
+  # ===========================================================================
+  - name: Tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    uid: tempo
+    editable: false
+    jsonData:
+      httpMethod: GET
+      # Trace to Logs correlation
+      tracesToLogs:
+        datasourceUid: loki
+        filterByTraceID: true
+        filterBySpanID: false
+        mapTagNamesEnabled: true
+        tags:
+          - key: service.name
+            value: service
+          - key: service
+            value: service
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+        lokiSearch: true
+      # Trace to Metrics correlation
+      tracesToMetrics:
+        datasourceUid: prometheus
+        spanStartTimeShift: '-5m'
+        spanEndTimeShift: '5m'
+        tags:
+          - key: service.name
+            value: service
+        queries:
+          - name: Request Rate
+            query: 'sum(rate(http_request_duration_seconds_count{$$__tags}[5m]))'
+          - name: Error Rate
+            query: 'sum(rate(http_requests_total{status=~"5..",$$__tags}[5m]))'
+          - name: Latency (p99)
+            query: 'histogram_quantile(0.99, sum(rate(http_request_duration_seconds_bucket{$$__tags}[5m])) by (le))'
+      # Service Graph configuration
+      serviceMap:
+        datasourceUid: prometheus
+      # Node Graph for trace visualization
+      nodeGraph:
+        enabled: true
+      # Loki search integration
+      lokiSearch:
+        datasourceUid: loki
+
+  # ===========================================================================
+  # Alertmanager - alert management
+  # ===========================================================================
+  - name: Alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    uid: alertmanager
+    editable: false
+    jsonData:
+      implementation: prometheus

@@ -1,0 +1,19 @@
+{
+  "id": "system-alert-001",
+  "type": "system",
+  "severity": "critical",
+  "title": "Database Connection Pool Exhausted",
+  "message": "The PostgreSQL connection pool has reached maximum capacity. New connections are being rejected. Immediate investigation is required to prevent service degradation.",
+  "service": "user-bff",
+  "timestamp": "2026-01-07T14:45:00Z",
+  "metadata": {
+    "pool_size": "100",
+    "active_connections": "100",
+    "waiting_requests": "25",
+    "database_host": "db-primary.internal",
+    "environment": "production",
+    "region": "us-east-1"
+  },
+  "trace_id": "trace-sys-001",
+  "span_id": "span-sys-001"
+}

@@ -1,0 +1,278 @@
+# Prometheus configuration for tragge platform
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    monitor: 'tragge-monitor'
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+      timeout: 10s
+      api_version: v2
+
+# Rule files - alerting and recording rules
+rule_files:
+  - "rules/alerts.yml"
+  - "rules/recording.yml"
+
+scrape_configs:
+  # Prometheus self-monitoring
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+        labels:
+          service: 'prometheus'
+
+  # Go Services - User BFF
+  - job_name: 'user-bff'
+    static_configs:
+      - targets: ['user-bff:8081']
+        labels:
+          service: 'user-bff'
+          team: 'platform'
+    metrics_path: /metrics
+
+  # Go Services - Admin BFF
+  - job_name: 'admin-bff'
+    static_configs:
+      - targets: ['admin-bff:8083']
+        labels:
+          service: 'admin-bff'
+          team: 'platform'
+    metrics_path: /metrics
+
+  # Go Services - Trade BFF
+  - job_name: 'trade-bff'
+    static_configs:
+      - targets: ['trade-bff:8082']
+        labels:
+          service: 'trade-bff'
+          team: 'platform'
+    metrics_path: /metrics
+
+  # Go Services - Market Ingestor
+  - job_name: 'market-ingestor'
+    static_configs:
+      - targets: ['market-ingestor:8084']
+        labels:
+          service: 'market-ingestor'
+          team: 'platform'
+    metrics_path: /metrics
+
+  # Go Services - Trading Engine
+  - job_name: 'trading-engine'
+    static_configs:
+      - targets: ['trading-engine:8085']
+        labels:
+          service: 'trading-engine'
+          team: 'platform'
+    metrics_path: /metrics
+
+  # Go Services - Leaderboard Worker
+  - job_name: 'leaderboard-worker'
+    static_configs:
+      - targets: ['leaderboard-worker:8086']
+        labels:
+          service: 'leaderboard-worker'
+          team: 'platform'
+    metrics_path: /metrics
+
+  # Go Services - Contest Scheduler
+  - job_name: 'contest-scheduler'
+    static_configs:
+      - targets: ['contest-scheduler:8087']
+        labels:
+          service: 'contest-scheduler'
+          team: 'platform'
+    metrics_path: /metrics
+
+  # Redpanda metrics
+  - job_name: 'redpanda'
+    static_configs:
+      - targets: ['redpanda:9644']
+        labels:
+          service: 'redpanda'
+          team: 'infrastructure'
+    metrics_path: /public_metrics
+
+  # Redis metrics (standalone)
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+        labels:
+          service: 'redis'
+          team: 'infrastructure'
+          mode: 'standalone'
+
+  # Redis Sentinel metrics (when using Sentinel HA)
+  # Uncomment when using Redis Sentinel
+  # - job_name: 'redis-sentinel'
+  #   static_configs:
+  #     - targets:
+  #         - 'redis-0.redis-headless:9121'
+  #         - 'redis-1.redis-headless:9121'
+  #         - 'redis-2.redis-headless:9121'
+  #       labels:
+  #         service: 'redis'
+  #         team: 'infrastructure'
+  #         mode: 'sentinel'
+  #     - targets:
+  #         - 'redis-sentinel:9121'
+  #       labels:
+  #         service: 'redis-sentinel'
+  #         team: 'infrastructure'
+
+  # Redis Cluster metrics (when using Redis Cluster HA)
+  # Uncomment when using Redis Cluster
+  # - job_name: 'redis-cluster'
+  #   static_configs:
+  #     - targets:
+  #         - 'redis-cluster-0.redis-cluster-headless:9121'
+  #         - 'redis-cluster-1.redis-cluster-headless:9121'
+  #         - 'redis-cluster-2.redis-cluster-headless:9121'
+  #         - 'redis-cluster-3.redis-cluster-headless:9121'
+  #         - 'redis-cluster-4.redis-cluster-headless:9121'
+  #         - 'redis-cluster-5.redis-cluster-headless:9121'
+  #       labels:
+  #         service: 'redis-cluster'
+  #         team: 'infrastructure'
+  #         mode: 'cluster'
+
+  # ==========================================================================
+  # PostgreSQL Metrics (Docker Compose)
+  # ==========================================================================
+
+  # PostgreSQL - Single instance for Docker Compose environments
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+        labels:
+          service: 'postgres'
+          team: 'infrastructure'
+          role: 'primary'
+    metrics_path: /metrics
+
+  # ==========================================================================
+  # PostgreSQL HA Metrics (Kubernetes only)
+  # Uncomment the sections below when deploying to Kubernetes with Patroni HA.
+  # These require in-cluster Kubernetes service discovery and will fail in
+  # Docker Compose with: "unable to load in-cluster configuration,
+  # KUBERNETES_SERVICE_HOST and KUBERNETES_SERVICE_PORT must be defined"
+  # ==========================================================================
+
+  # # PostgreSQL HA - Primary and Replica metrics (postgres_exporter sidecar)
+  # - job_name: 'postgres-ha'
+  #   kubernetes_sd_configs:
+  #     - role: pod
+  #       namespaces:
+  #         names:
+  #           - tragge
+  #   relabel_configs:
+  #     - source_labels: [__meta_kubernetes_pod_label_app]
+  #       action: keep
+  #       regex: postgres-ha
+  #     - source_labels: [__meta_kubernetes_pod_container_port_number]
+  #       action: keep
+  #       regex: "9187"
+  #     - source_labels: [__meta_kubernetes_pod_name]
+  #       action: replace
+  #       target_label: instance
+  #     - source_labels: [__meta_kubernetes_pod_name]
+  #       action: replace
+  #       target_label: pod
+  #     - source_labels: [__meta_kubernetes_pod_label_role]
+  #       action: replace
+  #       target_label: role
+  #   metrics_path: /metrics
+
+  # # PostgreSQL HA - Static config for Kubernetes without service discovery
+  # - job_name: 'postgres-ha-static'
+  #   static_configs:
+  #     - targets: ['postgres-ha-0:9187']
+  #       labels:
+  #         service: 'postgres-ha'
+  #         team: 'infrastructure'
+  #         role: 'primary'
+  #     - targets: ['postgres-ha-1:9187']
+  #       labels:
+  #         service: 'postgres-ha'
+  #         team: 'infrastructure'
+  #         role: 'replica'
+  #     - targets: ['postgres-ha-2:9187']
+  #       labels:
+  #         service: 'postgres-ha'
+  #         team: 'infrastructure'
+  #         role: 'replica'
+  #   metrics_path: /metrics
+
+  # # Patroni REST API metrics (Kubernetes only)
+  # - job_name: 'patroni'
+  #   kubernetes_sd_configs:
+  #     - role: pod
+  #       namespaces:
+  #         names:
+  #           - tragge
+  #   relabel_configs:
+  #     - source_labels: [__meta_kubernetes_pod_label_app]
+  #       action: keep
+  #       regex: postgres-ha
+  #     - source_labels: [__meta_kubernetes_pod_container_port_number]
+  #       action: keep
+  #       regex: "8008"
+  #     - source_labels: [__meta_kubernetes_pod_name]
+  #       action: replace
+  #       target_label: instance
+  #   metrics_path: /metrics
+
+  # # PgBouncer Primary metrics (Kubernetes only)
+  # - job_name: 'pgbouncer-primary'
+  #   static_configs:
+  #     - targets: ['pgbouncer-primary:9127']
+  #       labels:
+  #         service: 'pgbouncer'
+  #         team: 'infrastructure'
+  #         role: 'primary'
+  #   metrics_path: /metrics
+
+  # # PgBouncer Replica metrics (Kubernetes only)
+  # - job_name: 'pgbouncer-replica'
+  #   static_configs:
+  #     - targets: ['pgbouncer-replica:9127']
+  #       labels:
+  #         service: 'pgbouncer'
+  #         team: 'infrastructure'
+  #         role: 'replica'
+  #   metrics_path: /metrics
+
+  # # etcd metrics for Patroni DCS (Kubernetes only)
+  # - job_name: 'etcd'
+  #   static_configs:
+  #     - targets: ['etcd-0.etcd:2379', 'etcd-1.etcd:2379', 'etcd-2.etcd:2379']
+  #       labels:
+  #         service: 'etcd'
+  #         team: 'infrastructure'
+  #   metrics_path: /metrics
+
+  # ==========================================================================
+  # End PostgreSQL HA Metrics (Kubernetes only)
+  # ==========================================================================
+
+  # Tempo metrics
+  - job_name: 'tempo'
+    static_configs:
+      - targets: ['tempo:3200']
+        labels:
+          service: 'tempo'
+          team: 'infrastructure'
+
+  # Loki metrics
+  - job_name: 'loki'
+    static_configs:
+      - targets: ['loki:3100']
+        labels:
+          service: 'loki'
+          team: 'infrastructure'

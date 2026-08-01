@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tragge.io/schemas/pnl_delta.v1.json",
+  "title": "PnLDelta",
+  "description": "PnL score change event for leaderboard updates",
+  "type": "object",
+  "required": ["user_id", "contest_id", "delta_score", "total_score", "ts"],
+  "additionalProperties": false,
+  "properties": {
+    "user_id": {
+      "type": "string",
+      "description": "User identifier"
+    },
+    "contest_id": {
+      "type": "string",
+      "description": "Contest identifier"
+    },
+    "delta_score": {
+      "type": "number",
+      "description": "Score change since last update"
+    },
+    "total_score": {
+      "type": "number",
+      "description": "Current total score"
+    },
+    "ts": {
+      "type": "integer",
+      "description": "Timestamp in milliseconds"
+    }
+  }
+}

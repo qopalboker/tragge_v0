@@ -1,0 +1,268 @@
+/* ============================================================================
+ * Design tokens for consolidated tragge frontend.
+ *
+ * Restores the token layer lost when three SPAs were merged into apps/frontend
+ * (commit a321752, stylesheets deleted in f514a37). Merges :root/.dark/@font-face
+ * from the three legacy styles/main.css files (admin > user > trade precedence
+ * on conflicts) and fills 32 tokens that components reference but that were
+ * never defined in any legacy source (semantic aliases, TradingView defaults,
+ * scale gaps). See fix/restore-design-tokens-regression commit for discovery.
+ * ========================================================================= */
+
+@import "tailwindcss";
+
+/* --- Dana (Farsi) --- bundled with shared package -------------------------- */
+@font-face {
+  font-family: 'Dana';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('./fonts/Dana-Regular.ttf') format('truetype');
+}
+
+@font-face {
+  font-family: 'Dana';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('./fonts/Dana-Bold.ttf') format('truetype');
+}
+
+/* --- Light theme (default) — admin palette wins conflicts ------------------*/
+:root {
+  /* Brand colors */
+  --color-primary: #6366F1;
+  --color-primary-hover: #4F46E5;
+  --color-primary-light: #EEF2FF;
+  --color-secondary: #3B82F6;
+  --color-success: #10B981;
+  --color-warning: #F59E0B;
+  --color-danger: #EF4444;
+
+  /* Backgrounds */
+  --color-bg-primary: #FFFFFF;
+  --color-bg-secondary: #F9FAFB;
+  --color-bg-tertiary: #F3F4F6;
+
+  /* Text */
+  --color-text-primary: #111827;
+  --color-text-secondary: #6B7280;
+  --color-text-muted: #9CA3AF;
+
+  /* Borders */
+  --color-border: #E5E7EB;
+  --color-border-light: #F3F4F6;
+
+  /* Accents retained from user-frontend (gradients/glass for module pages) */
+  --theme-bg: linear-gradient(145deg, #0a0a0f 0%, #111128 40%, #0d1117 100%);
+  --theme-surface: rgba(255, 255, 255, 0.04);
+  --theme-surface-hover: rgba(255, 255, 255, 0.08);
+  --theme-glass: rgba(255, 255, 255, 0.06);
+  --theme-glass-border: rgba(255, 255, 255, 0.1);
+  --theme-glass-highlight: rgba(255, 255, 255, 0.15);
+  --theme-text: #e8e8f0;
+  --theme-text-secondary: #8888a8;
+  --theme-accent: #6c5ce7;
+  --theme-accent-glow: rgba(108, 92, 231, 0.3);
+  --theme-green: #00d2a0;
+  --theme-red: #ff4757;
+  --theme-orange: #ffa502;
+  --theme-gold: #ffd700;
+  --theme-nav-bg: rgba(10, 10, 20, 0.85);
+  --theme-sidebar-bg: rgba(12, 12, 30, 0.95);
+  --color-accent-cyan: #06b6d4;
+  --color-accent-green: #00d2a0;
+
+  /* Shadows */
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+
+  /* Spacing */
+  --spacing-xs: 0.25rem;
+  --spacing-sm: 0.5rem;
+  --spacing-md: 1rem;
+  --spacing-lg: 1.5rem;
+  --spacing-xl: 2rem;
+  --spacing-2xl: 3rem;
+
+  /* Border radius */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-full: 9999px;
+
+  /* Typography */
+  --font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+  --font-family-fa: 'Dana', 'DM Sans', -apple-system, sans-serif;
+  --font-family-mono: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+
+  --font-size-xs: 0.75rem;
+  --font-size-sm: 0.875rem;
+  --font-size-md: 1rem;
+  --font-size-lg: 1.125rem;
+  --font-size-xl: 1.25rem;
+  --font-size-2xl: 1.5rem;
+  --font-size-3xl: 1.875rem;
+
+  /* Line heights */
+  --line-height-tight: 1.25;
+  --line-height-normal: 1.5;
+  --line-height-relaxed: 1.75;
+
+  /* Z-index */
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 300;
+  --z-toast: 400;
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+  --transition-slow: 350ms ease;
+
+  /* Layout */
+  --sidebar-width: 240px;
+  --header-height: 64px;
+  --bottom-nav-height: 56px;
+  --max-content-width: 1280px;
+
+  /* TradingView widget palette (from legacy trade-frontend) */
+  --tp-bg: #ffffff;
+  --tp-bg-nav: #f8fafc;
+  --tp-bg-sb: #ffffff;
+  --tp-bg-card: #ffffff;
+  --tp-bg-pnl: #f8fafc;
+  --tp-bg-hov: #f1f5f9;
+  --tp-bg-inp: #ffffff;
+  --tp-bd: #e2e8f0;
+  --tp-bd2: #cbd5e1;
+  --tp-bd3: #94a3b8;
+  --tp-t1: #475569;
+  --tp-t2: #94a3b8;
+  --tp-tw: #0f172a;
+  --tp-tm: #94a3b8;
+  --tp-g: #10b981;
+  --tp-gd: #dcfce7;
+  --tp-r: #ef4444;
+  --tp-rd: #fee2e2;
+  --tp-bl: #06b6d4;
+  --tp-blbg: rgba(6, 182, 212, 0.12);
+  --tp-cy: #8b5cf6;
+  --tp-or: #f59e0b;
+
+  /* ---- Gap fill: 32 tokens referenced by components but never defined -----*/
+
+  /* Semantic aliases — 1-line bridges so 48+ consumers don't need refactor */
+  --color-error: var(--color-danger);
+  --color-error-dark: #B91C1C;
+  --color-error-light: #FEE2E2;
+  --color-danger-bg: #FEE2E2;
+  --color-danger-dark: #B91C1C;
+  --color-danger-light: #FCA5A5;
+  --color-info: #3B82F6;
+  --color-primary-dark: #4F46E5;
+  --color-primary-dim: rgba(99, 102, 241, 0.5);
+  --color-primary-rgb: 99, 102, 241;
+  --color-success-light: #D1FAE5;
+  --color-warning-bg: #FEF3C7;
+  --color-warning-light: #FCD34D;
+  --color-warning-rgb: 245, 158, 11;
+  --color-surface: var(--color-bg-secondary);
+  --color-surface-dark: #1F2937;
+  --color-surface-hover: var(--color-bg-tertiary);
+  --color-surface-hover-dark: #374151;
+  --color-text-tertiary: var(--color-text-muted);
+  --color-buy: var(--color-success);
+  --color-sell: var(--color-danger);
+  --font-mono: var(--font-family-mono);
+
+  /* Scale extensions — base is canonical name for md; 4xl continues 3xl */
+  --font-size-base: var(--font-size-md);
+  --font-size-4xl: 2.25rem;
+  --spacing-xxl: var(--spacing-2xl);
+  --spacing-3xl: 4rem;
+  --border-radius: var(--radius-md);
+  --transition-base: var(--transition-normal);
+
+  /* TradingView tokens referenced but undefined even in legacy trade source.
+     Reasonable defaults aligned with the --tp-* palette above; the
+     charting_library overrides these at widget mount via inline styles. */
+  --tp-bg-2: #f8fafc;
+  --tp-bg-3: #f1f5f9;
+  --tp-bg-h: var(--tp-bg-hov);
+  --tp-gn: var(--tp-g);
+}
+
+/* --- Dark theme — admin palette wins, trade bg values layered as fallback --*/
+.dark {
+  --color-primary: #818CF8;
+  --color-primary-hover: #6366F1;
+  --color-primary-light: #312E81;
+  --color-secondary: #60A5FA;
+  --color-success: #34D399;
+  --color-warning: #FBBF24;
+  --color-danger: #F87171;
+
+  --color-bg-primary: #0F172A;
+  --color-bg-secondary: #1E293B;
+  --color-bg-tertiary: #334155;
+
+  --color-text-primary: #F1F5F9;
+  --color-text-secondary: #94A3B8;
+  --color-text-muted: #64748B;
+
+  --color-border: #334155;
+  --color-border-light: #1E293B;
+
+  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.3);
+  --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.4), 0 2px 4px -2px rgb(0 0 0 / 0.3);
+  --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.4), 0 4px 6px -4px rgb(0 0 0 / 0.3);
+
+  /* Dark variants of the gap tokens so semantic aliases keep resolving */
+  --color-error: var(--color-danger);
+  --color-surface: var(--color-surface-dark);
+  --color-surface-hover: var(--color-surface-hover-dark);
+
+  /* TradingView dark palette */
+  --tp-bg: #0f172a;
+  --tp-bg-nav: #1e293b;
+  --tp-bg-sb: #0f172a;
+  --tp-bg-card: #1e293b;
+  --tp-bg-hov: #334155;
+  --tp-bg-inp: #1e293b;
+  --tp-bg-2: #1e293b;
+  --tp-bg-3: #334155;
+  --tp-bd: #334155;
+  --tp-tw: #f1f5f9;
+}
+
+/* --- RTL: Dana font for Farsi -------------------------------------------- */
+[dir="rtl"] body {
+  font-family: var(--font-family-fa);
+}
+
+[dir="rtl"] .rtl-flip {
+  transform: scaleX(-1);
+}
+
+/* --- Reset (preserved from the 19-line stub) ------------------------------ */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: var(--font-family);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+#app {
+  min-height: 100vh;
+}

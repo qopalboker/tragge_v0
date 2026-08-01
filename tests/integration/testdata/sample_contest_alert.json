@@ -1,0 +1,17 @@
+{
+  "id": "contest-alert-001",
+  "type": "contest",
+  "severity": "medium",
+  "title": "Contest Finalization Delayed",
+  "message": "The finalization process for contest 'Weekly Trading Championship' has taken longer than expected. Prize distribution is pending. Manual intervention may be required if this continues.",
+  "service": "leaderboard-worker",
+  "timestamp": "2026-01-07T18:00:00Z",
+  "metadata": {
+    "contest_id": "contest-weekly-2026-01",
+    "contest_name": "Weekly Trading Championship",
+    "participants": "1250",
+    "prize_pool": "50000.00",
+    "delay_minutes": "15",
+    "environment": "production"
+  }
+}

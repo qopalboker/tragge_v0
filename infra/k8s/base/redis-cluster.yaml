@@ -1,0 +1,454 @@
+# =============================================================================
+# Redis Cluster High Availability Setup
+# =============================================================================
+# Option B: Redis Cluster (for larger scale, > 10GB data)
+# - 6 nodes: 3 masters + 3 replicas for data sharding and redundancy
+# - Automatic hash slot distribution (16384 slots)
+# - Built-in resharding and rebalancing
+# - Linear scalability for read and write operations
+# - RDB + AOF persistence for data durability
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# ConfigMap: Redis Cluster Configuration
+# -----------------------------------------------------------------------------
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-cluster-config
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: tragge-platform
+data:
+  redis.conf: |
+    # Cluster mode
+    cluster-enabled yes
+    cluster-config-file /data/nodes.conf
+    cluster-node-timeout 5000
+    cluster-announce-port 6379
+    cluster-announce-bus-port 16379
+    cluster-require-full-coverage no
+    cluster-replica-validity-factor 10
+    cluster-migration-barrier 1
+    cluster-allow-reads-when-down no
+
+    # Network
+    bind 0.0.0.0
+    port 6379
+    tcp-backlog 511
+    timeout 0
+    tcp-keepalive 300
+    protected-mode no
+
+    # General
+    daemonize no
+    supervised no
+    loglevel notice
+    logfile ""
+    databases 1
+
+    # Snapshotting (RDB persistence)
+    save 900 1
+    save 300 10
+    save 60 10000
+    stop-writes-on-bgsave-error yes
+    rdbcompression yes
+    rdbchecksum yes
+    dbfilename dump.rdb
+    dir /data
+
+    # AOF persistence
+    appendonly yes
+    appendfilename "appendonly.aof"
+    appendfsync everysec
+    no-appendfsync-on-rewrite no
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    aof-load-truncated yes
+    aof-use-rdb-preamble yes
+
+    # Memory management
+    maxmemory 1gb
+    maxmemory-policy allkeys-lru
+    maxmemory-samples 5
+
+    # Lazy freeing
+    lazyfree-lazy-eviction no
+    lazyfree-lazy-expire no
+    lazyfree-lazy-server-del no
+    replica-lazy-flush no
+
+    # Lua scripting
+    lua-time-limit 5000
+
+    # Slow log
+    slowlog-log-slower-than 10000
+    slowlog-max-len 128
+
+    # Client output buffer limits
+    client-output-buffer-limit normal 0 0 0
+    client-output-buffer-limit replica 256mb 64mb 60
+    client-output-buffer-limit pubsub 32mb 8mb 60
+
+    # Active defragmentation
+    activedefrag yes
+
+  init-cluster.sh: |
+    #!/bin/sh
+    set -e
+
+    CLUSTER_CONFIG="/data/nodes.conf"
+    POD_IP=$(hostname -i)
+    HOSTNAME=$(hostname)
+
+    echo "Starting Redis Cluster node: $HOSTNAME ($POD_IP)"
+
+    # Copy base config
+    cp /redis-config-ro/redis.conf /data/redis.conf
+
+    # Set cluster announce IP
+    echo "cluster-announce-ip $POD_IP" >> /data/redis.conf
+
+    # If this is a new node (no existing cluster config), we're good
+    if [ -f "$CLUSTER_CONFIG" ]; then
+      # Update the IP in existing cluster config if node restarted with new IP
+      echo "Existing cluster config found, updating IP if needed..."
+      sed -i "s/[0-9]\+\.[0-9]\+\.[0-9]\+\.[0-9]\+:6379@16379/$POD_IP:6379@16379/g" "$CLUSTER_CONFIG" || true
+    fi
+
+    echo "Node configuration ready"
+
+  create-cluster.sh: |
+    #!/bin/sh
+    # This script is used to create the initial cluster
+    # Run this as a one-time job after all 6 nodes are up
+
+    NAMESPACE="${NAMESPACE:-tragge}"
+    REPLICAS=1  # 1 replica per master
+
+    # Get all pod IPs
+    echo "Waiting for all 6 Redis cluster nodes to be ready..."
+
+    NODES=""
+    for i in $(seq 0 5); do
+      POD="redis-cluster-$i.redis-cluster-headless.$NAMESPACE.svc.cluster.local"
+      echo "Waiting for $POD..."
+      until redis-cli -h "$POD" -p 6379 ping 2>/dev/null | grep -q PONG; do
+        sleep 2
+      done
+      IP=$(getent hosts "$POD" | awk '{ print $1 }')
+      NODES="$NODES $IP:6379"
+      echo "Node $i ready: $IP"
+    done
+
+    echo "All nodes ready. Creating cluster with nodes:$NODES"
+
+    # Create the cluster
+    redis-cli --cluster create $NODES \
+      --cluster-replicas $REPLICAS \
+      --cluster-yes
+
+    echo "Cluster created successfully!"
+    redis-cli --cluster info $(echo $NODES | awk '{print $1}')
+
+# -----------------------------------------------------------------------------
+# StatefulSet: Redis Cluster Nodes
+# -----------------------------------------------------------------------------
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cluster
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  serviceName: redis-cluster-headless
+  replicas: 6
+  podManagementPolicy: Parallel
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-cluster
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-cluster
+        app.kubernetes.io/component: database
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsNonRoot: true
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: redis-cluster
+                topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: init-redis
+          image: redis:7-alpine
+          command:
+            - sh
+            - /scripts/init-cluster.sh
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: redis-config
+              mountPath: /redis-config-ro
+            - name: scripts
+              mountPath: /scripts
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - /data/redis.conf
+          ports:
+            - containerPort: 6379
+              name: redis
+            - containerPort: 16379
+              name: cluster-bus
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "200m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli ping | grep PONG
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 5
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - |
+                  redis-cli ping | grep PONG && \
+                  redis-cli cluster info | grep -q "cluster_state:ok" || \
+                  redis-cli cluster info | grep -q "cluster_known_nodes:1"
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 5
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: false
+        # Redis Exporter sidecar for Prometheus metrics
+        - name: redis-exporter
+          image: oliver006/redis_exporter:v1.55.0-alpine
+          ports:
+            - containerPort: 9121
+              name: metrics
+          env:
+            - name: REDIS_ADDR
+              value: "redis://localhost:6379"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "64Mi"
+              cpu: "50m"
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: redis-config
+          configMap:
+            name: redis-cluster-config
+        - name: scripts
+          configMap:
+            name: redis-cluster-config
+            items:
+              - key: init-cluster.sh
+                path: init-cluster.sh
+                mode: 0755
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: redis-cluster
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+        # Uncomment to use a specific storage class
+        # storageClassName: fast-ssd
+
+# -----------------------------------------------------------------------------
+# Job: Cluster Initialization (run once after all nodes are up)
+# -----------------------------------------------------------------------------
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: redis-cluster-init
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis-cluster-init
+    app.kubernetes.io/component: setup
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  ttlSecondsAfterFinished: 86400  # Cleanup after 24 hours
+  backoffLimit: 3
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-cluster-init
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsUser: 1000
+        runAsNonRoot: true
+      containers:
+        - name: cluster-init
+          image: redis:7-alpine
+          command:
+            - sh
+            - /scripts/create-cluster.sh
+          env:
+            - name: NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: scripts
+              mountPath: /scripts
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+      volumes:
+        - name: scripts
+          configMap:
+            name: redis-cluster-config
+            items:
+              - key: create-cluster.sh
+                path: create-cluster.sh
+                mode: 0755
+
+# -----------------------------------------------------------------------------
+# Services
+# -----------------------------------------------------------------------------
+---
+# Headless service for StatefulSet DNS discovery and cluster bus
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster-headless
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  clusterIP: None
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+    - port: 16379
+      targetPort: 16379
+      name: cluster-bus
+    - port: 9121
+      targetPort: 9121
+      name: metrics
+  selector:
+    app.kubernetes.io/name: redis-cluster
+
+---
+# ClusterIP service for client connections (load balances across all nodes)
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+    - port: 9121
+      targetPort: 9121
+      name: metrics
+  selector:
+    app.kubernetes.io/name: redis-cluster
+
+# -----------------------------------------------------------------------------
+# PodDisruptionBudget
+# -----------------------------------------------------------------------------
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-cluster-pdb
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  minAvailable: 4  # At least 4 of 6 nodes must be available
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-cluster
+
+# -----------------------------------------------------------------------------
+# ServiceMonitor for Prometheus Operator (optional)
+# -----------------------------------------------------------------------------
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: redis-cluster
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis-cluster
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-cluster
+  namespaceSelector:
+    matchNames:
+      - tragge
+  endpoints:
+    - port: metrics
+      interval: 15s
+      scrapeTimeout: 10s

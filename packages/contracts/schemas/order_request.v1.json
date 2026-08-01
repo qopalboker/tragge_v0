@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tragge.io/schemas/order_request.v1.json",
+  "title": "OrderRequest",
+  "description": "Request to place a new order",
+  "type": "object",
+  "required": ["order_id", "user_id", "contest_id", "symbol", "side", "type", "qty", "client_ts"],
+  "additionalProperties": false,
+  "properties": {
+    "order_id": {
+      "type": "string",
+      "description": "Unique order identifier (UUID)"
+    },
+    "user_id": {
+      "type": "string",
+      "description": "User identifier"
+    },
+    "contest_id": {
+      "type": "string",
+      "description": "Contest identifier"
+    },
+    "symbol": {
+      "type": "string",
+      "description": "Trading symbol"
+    },
+    "side": {
+      "type": "string",
+      "enum": ["BUY", "SELL"],
+      "description": "Order side"
+    },
+    "type": {
+      "type": "string",
+      "enum": ["MARKET", "LIMIT", "STOP"],
+      "description": "Order type"
+    },
+    "qty": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Order quantity (integer units)"
+    },
+    "limit_price": {
+      "type": "number",
+      "description": "Limit price (required for LIMIT orders)"
+    },
+    "stop_price": {
+      "type": "number",
+      "description": "Stop trigger price (required for STOP orders)"
+    },
+    "take_profit": {
+      "type": "number",
+      "description": "Take profit price level"
+    },
+    "stop_loss": {
+      "type": "number",
+      "description": "Stop loss price level"
+    },
+    "client_ts": {
+      "type": "integer",
+      "description": "Client-side timestamp in milliseconds"
+    }
+  }
+}

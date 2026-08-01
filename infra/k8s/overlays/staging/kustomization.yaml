@@ -1,0 +1,145 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: tragge-staging
+
+# =============================================================================
+# STAGING NAMESPACE
+# =============================================================================
+# All resources will be deployed to tragge-staging namespace
+namespace: tragge-staging
+
+# =============================================================================
+# BASE RESOURCES
+# =============================================================================
+# Import all base manifests from the base directory
+resources:
+  - ../../base
+  - namespace.yaml
+
+# =============================================================================
+# STAGING COMPONENTS
+# =============================================================================
+# Kustomize Components for staging-specific configurations
+components:
+  # Replica reduction - save resources in staging
+  - patches/replicas-patch.yaml
+  # Resource limits - 50% of production
+  - patches/resources-patch.yaml
+  # Ingress - staging domains and rate limits
+  - patches/ingress-patch.yaml
+  # TLS certificate issuer - Let's Encrypt staging
+  - patches/tls-patch.yaml
+
+# =============================================================================
+# STAGING PATCHES
+# =============================================================================
+# Apply staging-specific inline patches
+patches:
+  # ---------------------------------------------------------------------------
+  # DATABASE CONNECTION - Staging Database
+  # ---------------------------------------------------------------------------
+  # Override PostgreSQL DSN to use staging database
+  - patch: |-
+      - op: replace
+        path: /data/POSTGRES_DSN
+        value: cG9zdGdyZXM6Ly9hcHA6YXBwQHBvc3RncmVzLXN0YWdpbmc6NTQzMi9hcHBfc3RhZ2luZz9zc2xtb2RlPWRpc2FibGU=
+    target:
+      kind: Secret
+      name: tragge-secrets
+
+  # ---------------------------------------------------------------------------
+  # REDIS CONNECTION - Staging Redis
+  # ---------------------------------------------------------------------------
+  # Override Redis address to use staging Redis instance
+  - patch: |-
+      - op: replace
+        path: /data/REDIS_ADDR
+        value: redis-staging:6379
+    target:
+      kind: ConfigMap
+      name: tragge-config
+
+  # ---------------------------------------------------------------------------
+  # KAFKA BROKERS - Staging Redpanda
+  # ---------------------------------------------------------------------------
+  # Override Kafka brokers to use staging Redpanda instance
+  - patch: |-
+      - op: replace
+        path: /data/KAFKA_BROKERS
+        value: redpanda-staging:9092
+    target:
+      kind: ConfigMap
+      name: tragge-config
+
+# =============================================================================
+# IMAGE CUSTOMIZATION
+# =============================================================================
+# Use staging image tags (e.g., sha-abc123 or staging-latest)
+# IMPORTANT: Update these tags in your CI/CD pipeline
+images:
+  - name: tragge/user-bff
+    newTag: staging
+  - name: tragge/trade-bff
+    newTag: staging
+  - name: tragge/admin-bff
+    newTag: staging
+  - name: tragge/market-ingestor
+    newTag: staging
+  - name: tragge/trading-engine
+    newTag: staging
+  - name: tragge/leaderboard-worker
+    newTag: staging
+  - name: tragge/frontend
+    newTag: staging
+  - name: tragge/gateway
+    newTag: staging
+
+# =============================================================================
+# COMMON LABELS
+# =============================================================================
+# Add staging-specific labels to all resources
+commonLabels:
+  environment: staging
+  managed-by: kustomize
+
+# =============================================================================
+# COMMON ANNOTATIONS
+# =============================================================================
+# Add metadata for tracking and monitoring
+commonAnnotations:
+  deployment/environment: staging
+  deployment/purpose: pre-production-testing
+
+# =============================================================================
+# CONFIGMAP GENERATOR
+# =============================================================================
+# Generate a staging-specific ConfigMap with environment overrides
+configMapGenerator:
+  - name: staging-config
+    literals:
+      - ENVIRONMENT=staging
+      - LOG_LEVEL=debug
+      - ENABLE_METRICS=true
+      - ENABLE_TRACING=true
+      # Staging-specific feature flags
+      - FEATURE_RATE_LIMITING=true
+      - FEATURE_DEBUG_MODE=true
+      # OTEL configuration for staging
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://tempo:4317
+      - OTEL_SERVICE_NAME_PREFIX=staging-
+
+# =============================================================================
+# SECRET GENERATOR
+# =============================================================================
+# Generate staging-specific secrets (should be replaced with External Secrets in production)
+# IMPORTANT: These are example values - replace with actual staging secrets
+secretGenerator:
+  - name: staging-secrets
+    literals:
+      # Staging JWT secret (different from production)
+      - JWT_SECRET=staging-jwt-secret-change-me-in-production
+      # Staging API keys (use test/sandbox keys)
+      - TWELVEDATA_API_KEY=staging-twelvedata-key
+      - MASSIVE_API_KEY=staging-massive-key

@@ -1,0 +1,7 @@
+-- 0053_order_type_directional.down.sql
+-- NOTE: ENUM VALUES CANNOT BE REMOVED IN POSTGRESQL
+-- The enum values 'buy_limit', 'sell_limit', 'buy_stop', 'sell_stop' will remain
+-- in the order_type enum type. This is a PostgreSQL limitation.
+-- To fully remove them would require recreating the type and updating all rows.
+-- This is acceptable as the values won't cause issues if not used.
+-- Constraint revert is handled in 0054 down migration.

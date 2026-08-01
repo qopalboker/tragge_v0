@@ -1,0 +1,19 @@
+User-agent: *
+Allow: /user/login
+Allow: /user/register
+Allow: /user/terms
+Allow: /user/privacy
+Allow: /user/invite
+Disallow: /user/dashboard
+Disallow: /user/profile
+Disallow: /user/wallet
+Disallow: /user/settings
+Disallow: /user/affiliate
+Disallow: /user/my-tournaments
+Disallow: /user/my-contests
+Disallow: /trade/
+Disallow: /admin/
+Disallow: /api/
+Disallow: /webhooks/
+
+Sitemap: https://tragge.io/sitemap.xml

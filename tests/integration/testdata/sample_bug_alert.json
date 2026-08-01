@@ -1,0 +1,18 @@
+{
+  "id": "bug-alert-001",
+  "type": "bug",
+  "severity": "high",
+  "title": "Null Pointer Exception in Order Processor",
+  "message": "An unexpected null pointer exception occurred in the order processor when handling market orders with missing price data. The error was caught and logged, but this indicates a potential issue with input validation.",
+  "service": "trading-engine",
+  "timestamp": "2026-01-07T10:30:00Z",
+  "metadata": {
+    "error_code": "NPE-001",
+    "stack_trace": "OrderProcessor.processMarketOrder:125",
+    "affected_orders": "3",
+    "environment": "production",
+    "version": "1.2.3"
+  },
+  "trace_id": "abc123def456",
+  "span_id": "span-789"
+}

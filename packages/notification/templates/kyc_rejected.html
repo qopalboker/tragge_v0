@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Identity Verification Update Required</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+    <div style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
+        <!-- Header -->
+        <div style="background-color: #dc2626; padding: 30px; text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 10px;">&#10007;</div>
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Verification Update Needed</h1>
+        </div>
+
+        <!-- Content -->
+        <div style="padding: 30px;">
+            <p style="color: #333; margin-top: 0;">Hello{{if .UserName}} {{.UserName}}{{end}},</p>
+
+            <p style="color: #333;">Unfortunately, we were unable to verify your identity with the documents provided.</p>
+
+            <div style="background-color: #fef2f2; border-left: 4px solid #dc2626; padding: 15px; margin: 20px 0; border-radius: 0 6px 6px 0;">
+                <p style="margin: 0 0 5px 0; color: #991b1b; font-weight: bold;">Reason:</p>
+                <p style="margin: 0; color: #991b1b;">{{.Reason}}</p>
+            </div>
+
+            <p style="color: #333;">To complete your verification, please:</p>
+
+            <ol style="color: #333; padding-left: 20px;">
+                <li style="margin-bottom: 8px;">Log in to your account</li>
+                <li style="margin-bottom: 8px;">Go to the KYC verification section</li>
+                <li style="margin-bottom: 8px;">Submit new documents addressing the issue above</li>
+            </ol>
+
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{{.VerificationURL}}" style="display: inline-block; background-color: #2563eb; color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 500;">Resubmit Documents</a>
+            </div>
+
+            <p style="color: #666; font-size: 14px;">Common reasons for verification issues include:</p>
+            <ul style="color: #666; font-size: 14px; padding-left: 20px;">
+                <li style="margin-bottom: 4px;">Blurry or low-quality images</li>
+                <li style="margin-bottom: 4px;">Documents are expired</li>
+                <li style="margin-bottom: 4px;">Information doesn't match account details</li>
+                <li style="margin-bottom: 4px;">Required fields are not visible</li>
+            </ul>
+
+            <p style="color: #333; margin-bottom: 0;">If you have questions or need assistance, please contact our support team.</p>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #e9ecef;">
+            <p style="color: #999; font-size: 12px; margin: 0 0 10px 0;">
+                This email was sent by <strong>tragge</strong> regarding your account verification.
+            </p>
+            <p style="color: #999; font-size: 12px; margin: 0;">
+                Need help? Contact our support team for assistance.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

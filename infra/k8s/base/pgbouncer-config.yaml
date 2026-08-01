@@ -1,0 +1,200 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgbouncer-config
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/part-of: tragge-platform
+    app.kubernetes.io/component: connection-pooler
+data:
+  # PgBouncer configuration file
+  # Documentation: https://www.pgbouncer.org/config.html
+  pgbouncer.ini: |
+    [databases]
+    # Database connections
+    # Format: dbname = host=hostname port=port dbname=dbname
+    app = host=postgres port=5432 dbname=app
+
+    # Fallback database for admin console
+    * = host=postgres port=5432
+
+    [pgbouncer]
+    ###
+    ### Network & Connection Settings
+    ###
+
+    # Listen on all interfaces
+    listen_addr = 0.0.0.0
+    listen_port = 6432
+
+    # Unix socket (disabled in Kubernetes)
+    unix_socket_dir =
+
+    ###
+    ### Authentication
+    ###
+
+    # Authentication type: md5, scram-sha-256, plain, trust, cert
+    # Using scram-sha-256 to match PostgreSQL auth configuration
+    auth_type = scram-sha-256
+
+    # Authentication file location
+    auth_file = /etc/pgbouncer/userlist.txt
+
+    ###
+    ### Pooling Mode
+    ###
+
+    # Pool mode: session, transaction, statement
+    #
+    # - session: One server connection per client (lowest overhead, no connection reuse)
+    # - transaction: Server connection returned after each transaction (best for web apps)
+    # - statement: Server connection returned after each statement (most aggressive, breaks certain features)
+    #
+    # Using transaction mode for optimal connection reuse with web applications
+    pool_mode = transaction
+
+    ###
+    ### Connection Limits
+    ###
+
+    # Maximum number of client connections allowed
+    # Must be >= sum of all service MaxOpenConns at max HPA scale (~440)
+    # Budget:
+    #   Trading Engine  (4 SS replicas)    : 4  x 25 = 100
+    #   Trade-BFF       (2-10 HPA replicas): 10 x 15 = 150
+    #   Leaderboard     (1-5 HPA replicas) : 5  x 15 =  75
+    #   User-BFF        (2-4 HPA replicas) : 4  x 15 =  60
+    #   Admin-BFF       (1-2 HPA replicas) : 2  x 10 =  20
+    #   Other services                     :          ~  35
+    #   Total worst-case                   :          ~ 440
+    max_client_conn = 400
+
+    # Default pool size (connections per user+database pair)
+    # With transaction pooling, 50 server connections can serve 400+ clients
+    # because connections are returned after each transaction
+    default_pool_size = 50
+
+    # Minimum number of server connections to keep in pool
+    # Keeps 10 connections warm to avoid cold-start latency
+    min_pool_size = 10
+
+    # Reserve pool size for emergency connections under burst load
+    reserve_pool_size = 10
+
+    # Reserve pool timeout (seconds)
+    # If pool is full, clients wait this long for a connection from reserve pool
+    reserve_pool_timeout = 3
+
+    # Maximum number of server connections per database
+    # This is the hard limit sent to PostgreSQL
+    # PostgreSQL max_connections should be set to this value + 10 (for admin/superuser)
+    max_db_connections = 100
+
+    # Maximum number of server connections per user
+    # Unset = no limit (controlled by max_db_connections)
+    # max_user_connections = 50
+
+    ###
+    ### Timeouts
+    ###
+
+    # Server connection timeout (seconds)
+    server_connect_timeout = 15
+
+    # Idle server connection timeout (seconds)
+    # Close server connections that have been idle for this long
+    server_idle_timeout = 600
+
+    # Client idle timeout (seconds)
+    # Disconnect clients that have been idle for this long
+    # Set to 0 to disable (let clients control)
+    client_idle_timeout = 0
+
+    # Client login timeout (seconds)
+    client_login_timeout = 60
+
+    # Query timeout (seconds)
+    # Queries running longer than this are cancelled
+    # Set to 0 to disable
+    query_timeout = 0
+
+    # Query wait timeout (seconds)
+    # Maximum time queries are allowed to wait for a connection from pool
+    # If exceeded, client is disconnected
+    query_wait_timeout = 120
+
+    ###
+    ### Logging
+    ###
+
+    # Log connections
+    log_connections = 1
+
+    # Log disconnections
+    log_disconnections = 1
+
+    # Log pooler errors
+    log_pooler_errors = 1
+
+    # Verbose logging (0 = disabled, 1 = enabled)
+    # Enable for debugging, disable in production for performance
+    verbose = 0
+
+    # Statistics period (seconds)
+    # Stats are logged every this many seconds
+    stats_period = 60
+
+    ###
+    ### Admin Access
+    ###
+
+    # Comma-separated list of database users that can connect to pgbouncer admin console
+    # Admin console available on special database 'pgbouncer'
+    admin_users = postgres
+
+    # Comma-separated list of users who can query statistics
+    stats_users = postgres
+
+    ###
+    ### DNS
+    ###
+
+    # DNS caching time (seconds)
+    dns_max_ttl = 15
+
+    # DNS lookup frequency (seconds)
+    dns_nxdomain_ttl = 15
+
+    ###
+    ### TLS/SSL (disabled for internal Kubernetes communication)
+    ###
+
+    # client_tls_sslmode = disable
+    # server_tls_sslmode = disable
+
+    ###
+    ### Performance Tuning
+    ###
+
+    # TCP keepalive settings
+    tcp_keepalive = 1
+    tcp_keepidle = 60
+    tcp_keepintvl = 10
+    tcp_keepcnt = 5
+
+    # TCP user timeout (milliseconds)
+    # Only available on Linux 2.6.37+
+    # tcp_user_timeout = 30000
+
+    # SO_REUSEPORT support
+    # Allows multiple PgBouncer processes to bind to same port
+    so_reuseport = 1
+
+    ###
+    ### Application Name Support
+    ###
+
+    # Track application names from clients
+    application_name_add_host = 1

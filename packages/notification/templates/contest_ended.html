@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Contest Results - Tragge</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+    <div style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); padding: 30px; text-align: center;">
+            <div style="font-size: 56px; margin-bottom: 10px;">&#127937;</div>
+            <h1 style="color: #ffffff; margin: 0; font-size: 28px;">Contest Ended</h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 16px;">Your results are in!</p>
+        </div>
+
+        <!-- Content -->
+        <div style="padding: 30px;">
+            <p style="color: #333; margin-top: 0; font-size: 16px;">Hello{{if .UserName}} {{.UserName}}{{end}},</p>
+
+            <p style="color: #333; font-size: 16px;"><strong>{{.ContestName}}</strong> has concluded. Here are your final results:</p>
+
+            <!-- Rank Display -->
+            <div style="background: linear-gradient(135deg, #eff6ff 0%, #dbeafe 100%); border-radius: 8px; padding: 25px; margin: 25px 0; text-align: center;">
+                <div style="font-size: 14px; color: #1e40af; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px;">Your Final Rank</div>
+                <div style="font-size: 42px; font-weight: bold; color: #1e3a8a;">#{{.UserRank}}</div>
+                {{if .TotalParticipants}}<div style="font-size: 14px; color: #1e40af; margin-top: 5px;">out of {{.TotalParticipants}} participants</div>{{end}}
+            </div>
+
+            {{if .PrizeWon}}
+            <!-- Prize Won Section -->
+            <div style="background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-radius: 8px; padding: 20px; margin-bottom: 25px; text-align: center;">
+                <div style="font-size: 14px; color: #92400e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 8px;">Prize Won</div>
+                <div style="font-size: 32px; font-weight: bold; color: #78350f;">{{.FormattedPrize}}</div>
+                <div style="font-size: 14px; color: #92400e; margin-top: 5px;">has been credited to your wallet</div>
+            </div>
+            {{end}}
+
+            <!-- Contest Summary -->
+            <div style="background-color: #f8f9fa; border-radius: 8px; padding: 20px; margin-bottom: 25px;">
+                <h2 style="color: #333; font-size: 16px; margin: 0 0 15px 0; text-transform: uppercase; letter-spacing: 0.5px;">Your Results</h2>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #666;">Contest:</td>
+                        <td style="padding: 8px 0; color: #333; font-weight: 500;">{{.ContestName}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666;">Final Rank:</td>
+                        <td style="padding: 8px 0; color: #1d4ed8; font-weight: 600;">#{{.UserRank}}{{if .TotalParticipants}} / {{.TotalParticipants}}{{end}}</td>
+                    </tr>
+                    {{if .FormattedScore}}
+                    <tr>
+                        <td style="padding: 8px 0; color: #666;">Final P&amp;L:</td>
+                        <td style="padding: 8px 0; color: #333; font-weight: 500;">{{.FormattedScore}}</td>
+                    </tr>
+                    {{end}}
+                    {{if .PrizeWon}}
+                    <tr>
+                        <td style="padding: 8px 0; color: #666;">Prize:</td>
+                        <td style="padding: 8px 0; color: #d97706; font-weight: 600;">{{.FormattedPrize}}</td>
+                    </tr>
+                    {{end}}
+                </table>
+            </div>
+
+            <!-- CTA Button -->
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{{.ResultsURL}}" style="display: inline-block; padding: 14px 40px; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(59, 130, 246, 0.3);">View Full Results</a>
+            </div>
+
+            <p style="color: #333; margin-bottom: 0;">Thank you for participating! We look forward to seeing you in future contests.</p>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #e9ecef;">
+            <p style="color: #999; font-size: 12px; margin: 0;">
+                You're receiving this email because you participated in a contest on <strong>Tragge</strong>.<br>
+                Thank you for being part of our trading community!
+            </p>
+        </div>
+    </div>
+</body>
+</html>

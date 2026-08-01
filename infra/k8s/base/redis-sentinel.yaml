@@ -1,0 +1,549 @@
+# =============================================================================
+# Redis Sentinel High Availability Setup
+# =============================================================================
+# Option A: Redis Sentinel (recommended for < 10GB data)
+# - 1 Master + 2 Replicas for data redundancy
+# - 3 Sentinel instances for quorum-based failover
+# - Automatic master election on failure
+# - RDB + AOF persistence for data durability
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# ConfigMap: Redis Configuration
+# -----------------------------------------------------------------------------
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: tragge-platform
+data:
+  redis.conf: |
+    # Network
+    bind 0.0.0.0
+    port 6379
+    tcp-backlog 511
+    timeout 0
+    tcp-keepalive 300
+
+    # General
+    daemonize no
+    supervised no
+    loglevel notice
+    logfile ""
+    databases 16
+
+    # Snapshotting (RDB persistence)
+    save 900 1
+    save 300 10
+    save 60 10000
+    stop-writes-on-bgsave-error yes
+    rdbcompression yes
+    rdbchecksum yes
+    dbfilename dump.rdb
+    dir /data
+
+    # Replication
+    replica-serve-stale-data yes
+    replica-read-only yes
+    repl-diskless-sync no
+    repl-diskless-sync-delay 5
+    repl-disable-tcp-nodelay no
+    replica-priority 100
+
+    # AOF persistence
+    appendonly yes
+    appendfilename "appendonly.aof"
+    appendfsync everysec
+    no-appendfsync-on-rewrite no
+    auto-aof-rewrite-percentage 100
+    auto-aof-rewrite-min-size 64mb
+    aof-load-truncated yes
+    aof-use-rdb-preamble yes
+
+    # Memory management
+    maxmemory 512mb
+    maxmemory-policy allkeys-lru
+    maxmemory-samples 5
+
+    # Lazy freeing
+    lazyfree-lazy-eviction no
+    lazyfree-lazy-expire no
+    lazyfree-lazy-server-del no
+    replica-lazy-flush no
+
+    # Lua scripting
+    lua-time-limit 5000
+
+    # Slow log
+    slowlog-log-slower-than 10000
+    slowlog-max-len 128
+
+    # Client output buffer limits
+    client-output-buffer-limit normal 0 0 0
+    client-output-buffer-limit replica 256mb 64mb 60
+    client-output-buffer-limit pubsub 32mb 8mb 60
+
+    # Active defragmentation
+    activedefrag yes
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-sentinel-config
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis-sentinel
+    app.kubernetes.io/component: config
+    app.kubernetes.io/part-of: tragge-platform
+data:
+  sentinel.conf: |
+    # Sentinel configuration
+    port 26379
+
+    # Monitor the master (will be updated by init script)
+    sentinel monitor mymaster redis-0.redis-headless 6379 2
+
+    # Failover timing
+    sentinel down-after-milliseconds mymaster 5000
+    sentinel failover-timeout mymaster 60000
+    sentinel parallel-syncs mymaster 1
+
+    # Notification and reconfig scripts (optional)
+    # sentinel notification-script mymaster /var/redis/notify.sh
+    # sentinel client-reconfig-script mymaster /var/redis/reconfig.sh
+
+    # Log level
+    loglevel notice
+
+    # Announce IP (will be set by init container)
+    # sentinel announce-ip <ip>
+    # sentinel announce-port 26379
+
+  init-sentinel.sh: |
+    #!/bin/sh
+    set -e
+
+    REDIS_MASTER_HOST="redis-0.redis-headless.tragge.svc.cluster.local"
+    REDIS_PORT=6379
+    SENTINEL_PORT=26379
+
+    # Copy base config
+    cp /redis-config-ro/sentinel.conf /data/sentinel.conf
+
+    # Wait for master to be ready
+    echo "Waiting for Redis master at $REDIS_MASTER_HOST:$REDIS_PORT..."
+    until redis-cli -h $REDIS_MASTER_HOST -p $REDIS_PORT ping 2>/dev/null; do
+      echo "Master not ready, waiting..."
+      sleep 2
+    done
+    echo "Master is ready!"
+
+    # Get pod IP for announcement
+    POD_IP=$(hostname -i)
+    echo "Pod IP: $POD_IP"
+
+    # Update sentinel config with announce IP
+    echo "sentinel announce-ip $POD_IP" >> /data/sentinel.conf
+    echo "sentinel announce-port $SENTINEL_PORT" >> /data/sentinel.conf
+
+    echo "Sentinel configuration ready"
+
+# -----------------------------------------------------------------------------
+# StatefulSet: Redis Master and Replicas
+# -----------------------------------------------------------------------------
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  serviceName: redis-headless
+  replicas: 3
+  podManagementPolicy: OrderedReady
+  updateStrategy:
+    type: RollingUpdate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis
+        app.kubernetes.io/component: database
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsNonRoot: true
+      affinity:
+        podAntiAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: redis
+              topologyKey: kubernetes.io/hostname
+      terminationGracePeriodSeconds: 30
+      initContainers:
+        - name: init-redis
+          image: redis:7-alpine
+          command:
+            - sh
+            - -c
+            - |
+              set -e
+              HOSTNAME=$(hostname)
+              INDEX=${HOSTNAME##*-}
+
+              # Copy base config
+              cp /redis-config-ro/redis.conf /data/redis.conf
+
+              if [ "$INDEX" = "0" ]; then
+                echo "I am the initial master (redis-0)"
+              else
+                echo "I am a replica, connecting to master"
+                echo "replicaof redis-0.redis-headless 6379" >> /data/redis.conf
+              fi
+
+              # Set announce IP
+              POD_IP=$(hostname -i)
+              echo "replica-announce-ip $POD_IP" >> /data/redis.conf
+              echo "replica-announce-port 6379" >> /data/redis.conf
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: redis-config
+              mountPath: /redis-config-ro
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          command:
+            - redis-server
+            - /data/redis.conf
+          ports:
+            - containerPort: 6379
+              name: redis
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli ping | grep PONG
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli ping | grep PONG
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: false
+        # Redis Exporter sidecar for Prometheus metrics
+        - name: redis-exporter
+          image: oliver006/redis_exporter:v1.55.0-alpine
+          ports:
+            - containerPort: 9121
+              name: metrics
+          env:
+            - name: REDIS_ADDR
+              value: "redis://localhost:6379"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "64Mi"
+              cpu: "50m"
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: redis-config
+          configMap:
+            name: redis-config
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+        labels:
+          app.kubernetes.io/name: redis
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 5Gi
+        # Uncomment to use a specific storage class
+        # storageClassName: fast-ssd
+
+# -----------------------------------------------------------------------------
+# Deployment: Redis Sentinel
+# -----------------------------------------------------------------------------
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-sentinel
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis-sentinel
+    app.kubernetes.io/component: sentinel
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-sentinel
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: redis-sentinel
+        app.kubernetes.io/component: sentinel
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9121"
+    spec:
+      securityContext:
+        fsGroup: 1000
+        runAsUser: 1000
+        runAsNonRoot: true
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: redis-sentinel
+                topologyKey: kubernetes.io/hostname
+      initContainers:
+        - name: init-sentinel
+          image: redis:7-alpine
+          command:
+            - sh
+            - /scripts/init-sentinel.sh
+          volumeMounts:
+            - name: data
+              mountPath: /data
+            - name: sentinel-config
+              mountPath: /redis-config-ro
+            - name: scripts
+              mountPath: /scripts
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+      containers:
+        - name: sentinel
+          image: redis:7-alpine
+          command:
+            - redis-sentinel
+            - /data/sentinel.conf
+          ports:
+            - containerPort: 26379
+              name: sentinel
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+          livenessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -p 26379 ping | grep PONG
+            initialDelaySeconds: 15
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - sh
+                - -c
+                - redis-cli -p 26379 ping | grep PONG
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: false
+        # Sentinel Exporter for Prometheus metrics
+        - name: sentinel-exporter
+          image: oliver006/redis_exporter:v1.55.0-alpine
+          ports:
+            - containerPort: 9121
+              name: metrics
+          env:
+            - name: REDIS_ADDR
+              value: "redis://localhost:26379"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "10m"
+            limits:
+              memory: "64Mi"
+              cpu: "50m"
+          securityContext:
+            runAsUser: 1000
+            runAsNonRoot: true
+            readOnlyRootFilesystem: true
+      volumes:
+        - name: sentinel-config
+          configMap:
+            name: redis-sentinel-config
+        - name: scripts
+          configMap:
+            name: redis-sentinel-config
+            items:
+              - key: init-sentinel.sh
+                path: init-sentinel.sh
+                mode: 0755
+        - name: data
+          emptyDir: {}
+
+# -----------------------------------------------------------------------------
+# Services
+# -----------------------------------------------------------------------------
+---
+# Headless service for StatefulSet DNS discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-headless
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  clusterIP: None
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+    - port: 9121
+      targetPort: 9121
+      name: metrics
+  selector:
+    app.kubernetes.io/name: redis
+
+---
+# ClusterIP service for Redis (routes to current master via Sentinel)
+# Note: For production, applications should use Sentinel-aware clients
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/component: database
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6379
+      targetPort: 6379
+      name: redis
+    - port: 9121
+      targetPort: 9121
+      name: metrics
+  selector:
+    app.kubernetes.io/name: redis
+
+---
+# Sentinel service for client discovery
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-sentinel
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis-sentinel
+    app.kubernetes.io/component: sentinel
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  type: ClusterIP
+  ports:
+    - port: 26379
+      targetPort: 26379
+      name: sentinel
+    - port: 9121
+      targetPort: 9121
+      name: metrics
+  selector:
+    app.kubernetes.io/name: redis-sentinel
+
+# -----------------------------------------------------------------------------
+# PodDisruptionBudget
+# -----------------------------------------------------------------------------
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-pdb
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: redis-sentinel-pdb
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: redis-sentinel
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: redis-sentinel

@@ -1,0 +1,35 @@
+{
+  "name": "tragge",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Trading Tournament Platform - Monorepo",
+  "scripts": {
+    "baseline:inventory": "node scripts/production-baseline.mjs inventory",
+    "baseline:verify": "node scripts/production-baseline.mjs verify",
+    "test:baseline": "node scripts/production-baseline.test.mjs",
+    "dev": "echo 'Run individual frontend apps with pnpm --filter <app> dev'",
+    "build": "pnpm -r build",
+    "lint": "pnpm -r lint",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui",
+    "e2e:headed": "playwright test --headed",
+    "e2e:debug": "playwright test --debug",
+    "e2e:user": "playwright test --project=user-chromium",
+    "e2e:trade": "playwright test --project=trade-chromium",
+    "e2e:admin": "playwright test --project=admin-chromium",
+    "e2e:firefox": "playwright test --project=firefox",
+    "e2e:report": "playwright show-report",
+    "e2e:install": "playwright install --with-deps"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.40.0",
+    "@types/node": "^20.10.0"
+  },
+  "engines": {
+    "node": "^20.19.0 || ^22.13.0 || >=24.0.0",
+    "pnpm": "8.15.0"
+  },
+  "packageManager": "pnpm@8.15.0"
+}

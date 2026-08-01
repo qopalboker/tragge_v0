@@ -1,0 +1,338 @@
+# =============================================================================
+# Docker Compose Override: Redis Sentinel (High Availability)
+# =============================================================================
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.redis-sentinel.yml up
+#
+# This replaces the standalone Redis with a Sentinel-based HA setup:
+# - 1 Redis master
+# - 2 Redis replicas
+# - 3 Sentinel instances
+# =============================================================================
+
+version: "3.8"
+
+volumes:
+  redis_master_data:
+  redis_replica1_data:
+  redis_replica2_data:
+
+services:
+  # Override the original redis service - disable it
+  redis:
+    profiles:
+      - disabled
+
+  # ==========================================================================
+  # Redis Master
+  # ==========================================================================
+  redis-master:
+    image: redis:7-alpine
+    container_name: tragge_redis_master
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+      --replica-announce-ip redis-master
+      --replica-announce-port 6379
+    # ports exposed via docker-compose.override.yml for development
+    volumes:
+      - redis_master_data:/data
+    networks:
+      - platform_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ==========================================================================
+  # Redis Replica 1
+  # ==========================================================================
+  redis-replica-1:
+    image: redis:7-alpine
+    container_name: tragge_redis_replica_1
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --replicaof redis-master 6379
+      --replica-announce-ip redis-replica-1
+      --replica-announce-port 6379
+    # ports exposed via docker-compose.override.yml for development
+    volumes:
+      - redis_replica1_data:/data
+    networks:
+      - platform_net
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ==========================================================================
+  # Redis Replica 2
+  # ==========================================================================
+  redis-replica-2:
+    image: redis:7-alpine
+    container_name: tragge_redis_replica_2
+    restart: unless-stopped
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --replicaof redis-master 6379
+      --replica-announce-ip redis-replica-2
+      --replica-announce-port 6379
+    # ports exposed via docker-compose.override.yml for development
+    volumes:
+      - redis_replica2_data:/data
+    networks:
+      - platform_net
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ==========================================================================
+  # Sentinel 1
+  # ==========================================================================
+  redis-sentinel-1:
+    image: redis:7-alpine
+    container_name: tragge_sentinel_1
+    restart: unless-stopped
+    command: >
+      sh -c '
+        echo "sentinel monitor mymaster redis-master 6379 2" > /data/sentinel.conf &&
+        echo "sentinel down-after-milliseconds mymaster 5000" >> /data/sentinel.conf &&
+        echo "sentinel failover-timeout mymaster 60000" >> /data/sentinel.conf &&
+        echo "sentinel parallel-syncs mymaster 1" >> /data/sentinel.conf &&
+        echo "sentinel announce-ip redis-sentinel-1" >> /data/sentinel.conf &&
+        echo "sentinel announce-port 26379" >> /data/sentinel.conf &&
+        redis-sentinel /data/sentinel.conf
+      '
+    # ports exposed via docker-compose.override.yml for development
+    networks:
+      - platform_net
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # ==========================================================================
+  # Sentinel 2
+  # ==========================================================================
+  redis-sentinel-2:
+    image: redis:7-alpine
+    container_name: tragge_sentinel_2
+    restart: unless-stopped
+    command: >
+      sh -c '
+        echo "sentinel monitor mymaster redis-master 6379 2" > /data/sentinel.conf &&
+        echo "sentinel down-after-milliseconds mymaster 5000" >> /data/sentinel.conf &&
+        echo "sentinel failover-timeout mymaster 60000" >> /data/sentinel.conf &&
+        echo "sentinel parallel-syncs mymaster 1" >> /data/sentinel.conf &&
+        echo "sentinel announce-ip redis-sentinel-2" >> /data/sentinel.conf &&
+        echo "sentinel announce-port 26379" >> /data/sentinel.conf &&
+        redis-sentinel /data/sentinel.conf
+      '
+    # ports exposed via docker-compose.override.yml for development
+    networks:
+      - platform_net
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # ==========================================================================
+  # Sentinel 3
+  # ==========================================================================
+  redis-sentinel-3:
+    image: redis:7-alpine
+    container_name: tragge_sentinel_3
+    restart: unless-stopped
+    command: >
+      sh -c '
+        echo "sentinel monitor mymaster redis-master 6379 2" > /data/sentinel.conf &&
+        echo "sentinel down-after-milliseconds mymaster 5000" >> /data/sentinel.conf &&
+        echo "sentinel failover-timeout mymaster 60000" >> /data/sentinel.conf &&
+        echo "sentinel parallel-syncs mymaster 1" >> /data/sentinel.conf &&
+        echo "sentinel announce-ip redis-sentinel-3" >> /data/sentinel.conf &&
+        echo "sentinel announce-port 26379" >> /data/sentinel.conf &&
+        redis-sentinel /data/sentinel.conf
+      '
+    # ports exposed via docker-compose.override.yml for development
+    networks:
+      - platform_net
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-replica-1:
+        condition: service_healthy
+      redis-replica-2:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "-p", "26379", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+  # ==========================================================================
+  # Redis Exporter for Prometheus
+  # ==========================================================================
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.55.0-alpine
+    container_name: tragge_redis_exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis-master:6379
+    # ports exposed via docker-compose.override.yml for development
+    networks:
+      - platform_net
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9121/metrics"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # ==========================================================================
+  # Service Overrides - Update Redis connection for Sentinel HA
+  # ==========================================================================
+
+  # User BFF - Sessions and caching
+  user-bff:
+    environment:
+      REDIS_MODE: sentinel
+      REDIS_ADDR: redis-master:6379
+      REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER: mymaster
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+      redis-sentinel-1:
+        condition: service_healthy
+
+  # Admin BFF - Admin session management
+  admin-bff:
+    environment:
+      REDIS_MODE: sentinel
+      REDIS_ADDR: redis-master:6379
+      REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER: mymaster
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+      redis-sentinel-1:
+        condition: service_healthy
+
+  # Trade BFF - WebSocket registry and price cache
+  trade-bff:
+    environment:
+      REDIS_MODE: sentinel
+      REDIS_ADDR: redis-master:6379
+      REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER: mymaster
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+      redis-sentinel-1:
+        condition: service_healthy
+
+  # Market Ingestor - Price data caching
+  market-ingestor:
+    environment:
+      REDIS_MODE: sentinel
+      REDIS_ADDR: redis-master:6379
+      REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER: mymaster
+    depends_on:
+      redis-master:
+        condition: service_healthy
+      redis-sentinel-1:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+
+  # Trading Engine - Price data and state management
+  trading-engine:
+    environment:
+      REDIS_MODE: sentinel
+      REDIS_ADDR: redis-master:6379
+      REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER: mymaster
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+      redis-sentinel-1:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy
+
+  # Leaderboard Worker - Leaderboard sorted sets
+  leaderboard-worker:
+    environment:
+      REDIS_MODE: sentinel
+      REDIS_ADDR: redis-master:6379
+      REDIS_SENTINEL_ADDRS: redis-sentinel-1:26379,redis-sentinel-2:26379,redis-sentinel-3:26379
+      REDIS_SENTINEL_MASTER: mymaster
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-master:
+        condition: service_healthy
+      redis-sentinel-1:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy

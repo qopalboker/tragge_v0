@@ -1,0 +1,105 @@
+# =============================================================================
+# STAGING REPLICA PATCHES
+# =============================================================================
+# Reduce replica counts for staging environment to save resources
+#
+# Strategy:
+# - Critical services (BFFs, Gateway): 2 replicas for HA testing
+# - Backend workers: 1 replica (sufficient for staging load)
+# - Frontends: 1 replica (low traffic expected)
+#
+# Production typically runs 3 replicas for all services
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+# =============================================================================
+# CRITICAL SERVICES - 2 REPLICAS
+# =============================================================================
+# These services handle user traffic and should maintain high availability
+# even in staging for realistic testing
+
+patches:
+  # User BFF - Handles authentication and user management
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: user-bff
+
+  # Trade BFF - Handles WebSocket connections and trading
+  # IMPORTANT: 2 replicas allow testing sticky session behavior
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: trade-bff
+
+  # Admin BFF - Admin operations
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: admin-bff
+
+  # Gateway - Entry point for all traffic
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 2
+    target:
+      kind: Deployment
+      name: gateway
+
+  # =============================================================================
+  # BACKEND WORKERS - 1 REPLICA
+  # =============================================================================
+  # Kafka consumers and background workers can run with 1 replica in staging
+
+  # Trading Engine - Order processing
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: trading-engine
+
+  # Market Ingestor - Market data ingestion
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: market-ingestor
+
+  # Leaderboard Worker - Leaderboard computation
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: leaderboard-worker
+
+  # =============================================================================
+  # FRONTENDS - 1 REPLICA
+  # =============================================================================
+  # Static content serves can run with minimal replicas in staging
+
+  # User Frontend
+  - patch: |-
+      - op: replace
+        path: /spec/replicas
+        value: 1
+    target:
+      kind: Deployment
+      name: frontend

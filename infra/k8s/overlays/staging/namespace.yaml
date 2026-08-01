@@ -1,0 +1,119 @@
+# =============================================================================
+# STAGING NAMESPACE
+# =============================================================================
+# Dedicated namespace for staging environment to isolate from production
+#
+# Features:
+# - Resource quotas to prevent runaway resource usage
+# - Network policies for security isolation
+# - Labels for monitoring and filtering
+#
+# Usage:
+#   kubectl get ns tragge-staging
+#   kubectl describe ns tragge-staging
+# =============================================================================
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: tragge-staging
+  labels:
+    # Environment identification
+    environment: staging
+    app.kubernetes.io/part-of: tragge-platform
+    app.kubernetes.io/managed-by: kustomize
+
+    # Network policy enforcement
+    name: tragge-staging
+
+    # Monitoring and observability
+    prometheus.io/scrape: "true"
+    grafana.io/dashboard: "tragge-staging"
+
+  annotations:
+    # Description
+    description: "Staging environment for Tragge trading platform"
+
+    # Owner and contact
+    owner: "platform-team"
+    contact: "platform@tragge.example.com"
+
+    # Purpose
+    purpose: "pre-production-testing"
+
+    # Cost tracking
+    cost-center: "engineering"
+    project: "tragge-platform"
+
+---
+# =============================================================================
+# RESOURCE QUOTA
+# =============================================================================
+# Prevent staging from consuming too many cluster resources
+# This ensures staging doesn't impact production or other environments
+# =============================================================================
+
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: staging-resource-quota
+  namespace: tragge-staging
+  labels:
+    environment: staging
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  hard:
+    # Compute resources
+    requests.cpu: "8"           # Total CPU requests across all pods
+    requests.memory: "16Gi"     # Total memory requests across all pods
+    limits.cpu: "16"            # Total CPU limits across all pods
+    limits.memory: "32Gi"       # Total memory limits across all pods
+
+    # Storage
+    requests.storage: "100Gi"   # Total persistent volume claims
+
+    # Object counts
+    pods: "50"                  # Maximum number of pods
+    services: "30"              # Maximum number of services
+    configmaps: "20"            # Maximum number of ConfigMaps
+    secrets: "20"               # Maximum number of Secrets
+    persistentvolumeclaims: "10" # Maximum number of PVCs
+
+---
+# =============================================================================
+# LIMIT RANGE
+# =============================================================================
+# Set default resource limits for pods without explicit limits
+# This prevents pods from consuming excessive resources
+# =============================================================================
+
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: staging-limit-range
+  namespace: tragge-staging
+  labels:
+    environment: staging
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  limits:
+    # Container limits
+    - type: Container
+      default:
+        cpu: "500m"           # Default CPU limit if not specified
+        memory: "512Mi"       # Default memory limit if not specified
+      defaultRequest:
+        cpu: "100m"           # Default CPU request if not specified
+        memory: "128Mi"       # Default memory request if not specified
+      max:
+        cpu: "2"              # Maximum CPU a container can request
+        memory: "4Gi"         # Maximum memory a container can request
+      min:
+        cpu: "10m"            # Minimum CPU a container must request
+        memory: "16Mi"        # Minimum memory a container must request
+
+    # Pod limits
+    - type: Pod
+      max:
+        cpu: "4"              # Maximum CPU a pod can request
+        memory: "8Gi"         # Maximum memory a pod can request

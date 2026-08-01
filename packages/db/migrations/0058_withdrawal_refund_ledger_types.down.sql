@@ -1,0 +1,2 @@
+-- 0058_withdrawal_refund_ledger_types.down.sql
+-- PostgreSQL cannot remove enum values; down migration is a no-op.

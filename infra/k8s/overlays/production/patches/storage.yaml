@@ -1,0 +1,83 @@
+# =============================================================================
+# PRODUCTION STORAGE PATCHES
+# =============================================================================
+# Production-grade storage allocations:
+# - PostgreSQL: 100Gi for database data
+# - Redis: 20Gi for cache persistence
+#
+# StorageClass should be configured for:
+# - High IOPS (SSD/NVMe)
+# - Automatic backups (if supported)
+# - Encryption at rest
+#
+# Note: VolumeClaimTemplates in StatefulSets cannot be modified after creation.
+# To apply these changes to existing deployments:
+# 1. Back up data
+# 2. Delete StatefulSet (--cascade=orphan)
+# 3. Delete old PVCs
+# 4. Apply new manifests
+# 5. Restore data
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  # =============================================================================
+  # POSTGRESQL - Production storage (100Gi)
+  # =============================================================================
+  # Note: This uses JSON patch on volumeClaimTemplates which requires
+  # strategic merge for new deployments. For existing clusters, see migration guide.
+  - patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: "100Gi"
+      - op: add
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: "premium-rwo"
+    target:
+      kind: StatefulSet
+      name: postgres
+
+  # =============================================================================
+  # REDIS - Production storage (20Gi)
+  # =============================================================================
+  - patch: |-
+      - op: replace
+        path: /spec/volumeClaimTemplates/0/spec/resources/requests/storage
+        value: "20Gi"
+      - op: add
+        path: /spec/volumeClaimTemplates/0/spec/storageClassName
+        value: "premium-rwo"
+    target:
+      kind: StatefulSet
+      name: redis
+
+  # =============================================================================
+  # REDIS MEMORY - Production limits (2Gi)
+  # =============================================================================
+  # Increase maxmemory for production workloads
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/command
+        value:
+          - redis-server
+          - --appendonly
+          - "yes"
+          - --appendfsync
+          - "everysec"
+          - --maxmemory
+          - "1gb"
+          - --maxmemory-policy
+          - "allkeys-lru"
+          - --dir
+          - "/data"
+          - --save
+          - "900 1"
+          - --save
+          - "300 10"
+          - --save
+          - "60 10000"
+    target:
+      kind: StatefulSet
+      name: redis

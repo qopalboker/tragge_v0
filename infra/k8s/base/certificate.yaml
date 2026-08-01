@@ -1,0 +1,100 @@
+# =============================================================================
+# TLS Certificate for Tragge Platform
+# =============================================================================
+# This Certificate resource instructs cert-manager to:
+# 1. Request a certificate from Let's Encrypt for the specified domains
+# 2. Store the certificate in a Kubernetes Secret
+# 3. Automatically renew the certificate before expiry
+#
+# The certificate covers:
+#   - tragge.example.com (main domain)
+#   - api.tragge.example.com (API subdomain)
+#   - ws.tragge.example.com (WebSocket subdomain)
+#
+# Configuration:
+#   - Issuer: letsencrypt-prod ClusterIssuer
+#   - Duration: 90 days (Let's Encrypt standard)
+#   - Renewal: 15 days before expiry
+#   - Algorithm: RSA 2048-bit (widely compatible)
+#
+# To use a different domain, update the dnsNames list below
+#
+# Verification:
+#   kubectl get certificate -n tragge
+#   kubectl describe certificate tragge-tls -n tragge
+#   kubectl get secret tragge-tls-secret -n tragge
+# =============================================================================
+
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: tragge-tls
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: tragge-tls
+    app.kubernetes.io/part-of: tragge-platform
+    app.kubernetes.io/component: certificate
+spec:
+  # Secret name where the certificate will be stored
+  # This secret is referenced in the Ingress tls.secretName field
+  secretName: tragge-tls-secret
+
+  # Certificate duration (90 days is Let's Encrypt standard)
+  duration: 2160h  # 90 days
+
+  # Renew certificate this long before expiry
+  # 15 days gives plenty of time for automatic renewal
+  renewBefore: 360h  # 15 days
+
+  # Subject configuration
+  subject:
+    organizations:
+      - Tragge Trading Platform
+
+  # Common Name (CN) - typically the primary domain
+  commonName: tragge.example.com
+
+  # Domain names (Subject Alternative Names)
+  # IMPORTANT: Update these to match your actual domain
+  # The certificate will be valid for all listed domains
+  dnsNames:
+    - tragge.example.com          # Main domain
+    - api.tragge.example.com      # API subdomain
+    - ws.tragge.example.com       # WebSocket subdomain
+    # Add additional subdomains as needed:
+    # - admin.tragge.example.com
+    # - trade.tragge.example.com
+
+  # Reference to the ClusterIssuer that will issue this certificate
+  # Use letsencrypt-staging for testing, letsencrypt-prod for production
+  issuerRef:
+    name: letsencrypt-prod
+    kind: ClusterIssuer
+    group: cert-manager.io
+
+  # Private key configuration
+  privateKey:
+    # RSA algorithm with 2048-bit key size
+    # RSA-2048 is widely supported and recommended for web servers
+    algorithm: RSA
+    size: 2048
+
+    # Rotation policy: regenerate private key on renewal
+    # This enhances security by using a new key for each certificate
+    rotationPolicy: Always
+
+  # Usages for the certificate
+  usages:
+    - digital signature    # Required for TLS
+    - key encipherment     # Required for TLS
+    - server auth          # Identifies this as a server certificate
+
+  # Secret template - additional metadata for the secret
+  secretTemplate:
+    labels:
+      app.kubernetes.io/name: tragge-tls-secret
+      app.kubernetes.io/part-of: tragge-platform
+      app.kubernetes.io/component: certificate
+    annotations:
+      description: "TLS certificate for Tragge trading platform"
+      cert-manager.io/certificate-name: tragge-tls

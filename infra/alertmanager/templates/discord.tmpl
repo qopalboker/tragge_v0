@@ -1,0 +1,222 @@
+{{/* Discord alert templates for Tragge Trading Platform */}}
+
+{{/* Default title */}}
+{{ define "discord.default.title" -}}
+[{{ .Status | toUpper }}] {{ .GroupLabels.alertname }}
+{{- end }}
+
+{{/* Default message */}}
+{{ define "discord.default.message" -}}
+{{ range .Alerts }}
+**Alert:** {{ .Labels.alertname }}
+**Severity:** {{ .Labels.severity }}
+**Service:** {{ if .Labels.service }}{{ .Labels.service }}{{ else }}{{ .Labels.job }}{{ end }}
+**Instance:** {{ .Labels.instance }}
+**Status:** {{ .Status }}
+
+**Summary:** {{ .Annotations.summary }}
+
+{{ if .Annotations.description -}}
+**Description:**
+{{ .Annotations.description }}
+{{ end -}}
+
+{{ if .Annotations.runbook_url -}}
+**Runbook:** {{ .Annotations.runbook_url }}
+{{ end -}}
+
+{{ if .Annotations.dashboard_url -}}
+**Dashboard:** {{ .Annotations.dashboard_url }}
+{{ end -}}
+---
+{{ end }}
+{{- end }}
+
+{{/* Critical alert title */}}
+{{ define "discord.critical.title" -}}
+:rotating_light: [CRITICAL] {{ .GroupLabels.alertname }}
+{{- end }}
+
+{{/* Critical alert message */}}
+{{ define "discord.critical.message" -}}
+**IMMEDIATE ACTION REQUIRED**
+
+{{ range .Alerts }}
+:fire: **Alert:** {{ .Labels.alertname }}
+**Severity:** {{ .Labels.severity }}
+**Service:** {{ if .Labels.service }}{{ .Labels.service }}{{ else }}{{ .Labels.job }}{{ end }}
+**Instance:** {{ .Labels.instance }}
+**Status:** {{ .Status }}
+
+**Summary:** {{ .Annotations.summary }}
+
+{{ if .Annotations.description -}}
+**Description:**
+{{ .Annotations.description }}
+{{ end -}}
+
+{{ if .Annotations.runbook_url -}}
+:book: **Runbook:** {{ .Annotations.runbook_url }}
+{{ end -}}
+
+{{ if .Annotations.dashboard_url -}}
+:chart_with_upwards_trend: **Dashboard:** {{ .Annotations.dashboard_url }}
+{{ end -}}
+
+**Started:** {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+{{ if .EndsAt.After .StartsAt -}}
+**Ended:** {{ .EndsAt.Format "2006-01-02 15:04:05 UTC" }}
+{{ end -}}
+---
+{{ end }}
+{{- end }}
+
+{{/* Warning alert title */}}
+{{ define "discord.warning.title" -}}
+:warning: [WARNING] {{ .GroupLabels.alertname }}
+{{- end }}
+
+{{/* Warning alert message */}}
+{{ define "discord.warning.message" -}}
+{{ range .Alerts }}
+:yellow_circle: **Alert:** {{ .Labels.alertname }}
+**Severity:** {{ .Labels.severity }}
+**Service:** {{ if .Labels.service }}{{ .Labels.service }}{{ else }}{{ .Labels.job }}{{ end }}
+**Instance:** {{ .Labels.instance }}
+**Status:** {{ .Status }}
+
+**Summary:** {{ .Annotations.summary }}
+
+{{ if .Annotations.description -}}
+{{ .Annotations.description }}
+{{ end -}}
+
+{{ if .Annotations.runbook_url -}}
+:book: **Runbook:** {{ .Annotations.runbook_url }}
+{{ end -}}
+
+{{ if .Annotations.dashboard_url -}}
+:chart_with_upwards_trend: **Dashboard:** {{ .Annotations.dashboard_url }}
+{{ end -}}
+---
+{{ end }}
+{{- end }}
+
+{{/* Trading alert title */}}
+{{ define "discord.trading.title" -}}
+:chart_with_upwards_trend: [TRADING] {{ .GroupLabels.alertname }}
+{{- end }}
+
+{{/* Trading alert message */}}
+{{ define "discord.trading.message" -}}
+{{ range .Alerts }}
+**Alert:** {{ .Labels.alertname }}
+**Severity:** {{ .Labels.severity }}
+**Status:** {{ .Status }}
+
+**Summary:** {{ .Annotations.summary }}
+
+{{ if .Annotations.description -}}
+{{ .Annotations.description }}
+{{ end -}}
+
+{{ if .Annotations.runbook_url -}}
+:book: **Runbook:** {{ .Annotations.runbook_url }}
+{{ end -}}
+---
+{{ end }}
+{{- end }}
+
+{{/* Platform alert title */}}
+{{ define "discord.platform.title" -}}
+:gear: [PLATFORM] {{ .GroupLabels.alertname }}
+{{- end }}
+
+{{/* Platform alert message */}}
+{{ define "discord.platform.message" -}}
+{{ range .Alerts }}
+**Alert:** {{ .Labels.alertname }}
+**Severity:** {{ .Labels.severity }}
+**Service:** {{ if .Labels.service }}{{ .Labels.service }}{{ else }}{{ .Labels.job }}{{ end }}
+**Instance:** {{ .Labels.instance }}
+**Status:** {{ .Status }}
+
+**Summary:** {{ .Annotations.summary }}
+
+{{ if .Annotations.description -}}
+{{ .Annotations.description }}
+{{ end -}}
+
+{{ if .Annotations.runbook_url -}}
+:book: **Runbook:** {{ .Annotations.runbook_url }}
+{{ end -}}
+
+{{ if .Annotations.dashboard_url -}}
+:chart_with_upwards_trend: **Dashboard:** {{ .Annotations.dashboard_url }}
+{{ end -}}
+---
+{{ end }}
+{{- end }}
+
+{{/* Log-based alert title */}}
+{{ define "discord.logs.title" -}}
+:page_facing_up: [LOGS] {{ .GroupLabels.alertname }}
+{{- end }}
+
+{{/* Log-based alert message */}}
+{{ define "discord.logs.message" -}}
+{{ range .Alerts }}
+:mag: **Alert:** {{ .Labels.alertname }}
+**Severity:** {{ .Labels.severity }}
+**Service:** {{ if .Labels.service }}{{ .Labels.service }}{{ else }}multiple{{ end }}
+**Source:** Log Analysis
+**Status:** {{ .Status }}
+
+**Summary:** {{ .Annotations.summary }}
+
+{{ if .Annotations.description -}}
+{{ .Annotations.description }}
+{{ end -}}
+
+{{ if .Annotations.runbook_url -}}
+:book: **Runbook:** {{ .Annotations.runbook_url }}
+{{ end -}}
+
+{{ if .Annotations.dashboard_url -}}
+:chart_with_upwards_trend: **Dashboard:** {{ .Annotations.dashboard_url }}
+{{ end -}}
+---
+{{ end }}
+{{- end }}
+
+{{/* Security alert title */}}
+{{ define "discord.security.title" -}}
+:shield: [SECURITY] {{ .GroupLabels.alertname }}
+{{- end }}
+
+{{/* Security alert message */}}
+{{ define "discord.security.message" -}}
+**SECURITY ALERT - Potential Threat Detected**
+
+{{ range .Alerts }}
+:rotating_light: **Alert:** {{ .Labels.alertname }}
+**Severity:** {{ .Labels.severity }}
+**Service:** {{ if .Labels.service }}{{ .Labels.service }}{{ else }}{{ .Labels.job }}{{ end }}
+**Category:** {{ if .Labels.category }}{{ .Labels.category }}{{ else }}security{{ end }}
+**Status:** {{ .Status }}
+
+**Summary:** {{ .Annotations.summary }}
+
+{{ if .Annotations.description -}}
+**Details:**
+{{ .Annotations.description }}
+{{ end -}}
+
+{{ if .Annotations.runbook_url -}}
+:book: **Runbook:** {{ .Annotations.runbook_url }}
+{{ end -}}
+
+**Time:** {{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}
+---
+{{ end }}
+{{- end }}

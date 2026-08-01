@@ -1,0 +1,266 @@
+---
+# PostgreSQL Configuration ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: tragge-platform
+data:
+  postgresql.conf: |
+    # ===========================================================================
+    # PostgreSQL Configuration for Tragge Trading Platform
+    # ===========================================================================
+
+    # ---------------------------------------------------------------------------
+    # Connection Settings
+    # ---------------------------------------------------------------------------
+    listen_addresses = '*'
+    port = 5432
+    max_connections = 200
+
+    # ---------------------------------------------------------------------------
+    # Authentication
+    # ---------------------------------------------------------------------------
+    password_encryption = scram-sha-256
+
+    # ---------------------------------------------------------------------------
+    # SSL/TLS Configuration
+    # ---------------------------------------------------------------------------
+    # Enable SSL (certificates mounted from secret)
+    ssl = on
+    ssl_cert_file = '/var/lib/postgresql/ssl/server.crt'
+    ssl_key_file = '/var/lib/postgresql/ssl/server.key'
+    ssl_ca_file = '/var/lib/postgresql/ssl/ca.crt'
+
+    # Minimum TLS version (TLS 1.2+)
+    ssl_min_protocol_version = 'TLSv1.2'
+
+    # Strong cipher suites only
+    ssl_ciphers = 'HIGH:MEDIUM:+3DES:!aNULL:!MD5:!RC4'
+
+    # Prefer server cipher order
+    ssl_prefer_server_ciphers = on
+
+    # ---------------------------------------------------------------------------
+    # Memory Settings
+    # ---------------------------------------------------------------------------
+    shared_buffers = 256MB
+    effective_cache_size = 768MB
+    work_mem = 16MB
+    maintenance_work_mem = 128MB
+
+    # ---------------------------------------------------------------------------
+    # WAL Settings
+    # ---------------------------------------------------------------------------
+    wal_level = replica
+    max_wal_senders = 3
+    wal_keep_size = 256MB
+
+    # ---------------------------------------------------------------------------
+    # Replication (for read replicas)
+    # ---------------------------------------------------------------------------
+    hot_standby = on
+
+    # ---------------------------------------------------------------------------
+    # Logging
+    # ---------------------------------------------------------------------------
+    logging_collector = on
+    log_directory = 'pg_log'
+    log_filename = 'postgresql-%Y-%m-%d.log'
+    log_rotation_age = 1d
+    log_rotation_size = 100MB
+
+    # Log queries and connections
+    log_connections = on
+    log_disconnections = on
+    log_statement = 'ddl'
+    log_min_duration_statement = 1000
+
+    # ---------------------------------------------------------------------------
+    # Security Hardening
+    # ---------------------------------------------------------------------------
+    # Limit function execution to trusted users
+    row_security = on
+
+---
+# PostgreSQL Initialization Scripts ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-init-scripts
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: postgres
+    app.kubernetes.io/part-of: tragge-platform
+data:
+  01-create-users.sh: |
+    #!/bin/bash
+    set -e
+
+    echo "Creating database users with role-based access..."
+
+    # Create application user
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+      -- Create application user
+      DO \$\$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$TRAGGE_APP_USER') THEN
+          CREATE USER $TRAGGE_APP_USER WITH LOGIN PASSWORD '$TRAGGE_APP_PASSWORD'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE CONNECTION LIMIT 100;
+          RAISE NOTICE 'Created user: $TRAGGE_APP_USER';
+        ELSE
+          ALTER USER $TRAGGE_APP_USER WITH PASSWORD '$TRAGGE_APP_PASSWORD';
+          RAISE NOTICE 'Updated password for: $TRAGGE_APP_USER';
+        END IF;
+      END
+      \$\$;
+
+      -- Create read-only user
+      DO \$\$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$TRAGGE_READONLY_USER') THEN
+          CREATE USER $TRAGGE_READONLY_USER WITH LOGIN PASSWORD '$TRAGGE_READONLY_PASSWORD'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE CONNECTION LIMIT 50;
+          RAISE NOTICE 'Created user: $TRAGGE_READONLY_USER';
+        ELSE
+          ALTER USER $TRAGGE_READONLY_USER WITH PASSWORD '$TRAGGE_READONLY_PASSWORD';
+          RAISE NOTICE 'Updated password for: $TRAGGE_READONLY_USER';
+        END IF;
+      END
+      \$\$;
+
+      -- Create PgBouncer auth user
+      DO \$\$
+      BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = '$PGBOUNCER_AUTH_USER') THEN
+          CREATE USER $PGBOUNCER_AUTH_USER WITH LOGIN PASSWORD '$PGBOUNCER_AUTH_PASSWORD'
+            NOSUPERUSER NOCREATEDB NOCREATEROLE CONNECTION LIMIT 5;
+          RAISE NOTICE 'Created user: $PGBOUNCER_AUTH_USER';
+        ELSE
+          ALTER USER $PGBOUNCER_AUTH_USER WITH PASSWORD '$PGBOUNCER_AUTH_PASSWORD';
+          RAISE NOTICE 'Updated password for: $PGBOUNCER_AUTH_USER';
+        END IF;
+      END
+      \$\$;
+
+      -- Grant database access
+      GRANT CONNECT ON DATABASE $POSTGRES_DB TO $TRAGGE_APP_USER;
+      GRANT CONNECT ON DATABASE $POSTGRES_DB TO $TRAGGE_READONLY_USER;
+      GRANT CONNECT ON DATABASE $POSTGRES_DB TO $PGBOUNCER_AUTH_USER;
+
+      -- Grant schema access
+      GRANT USAGE ON SCHEMA public TO $TRAGGE_APP_USER;
+      GRANT USAGE ON SCHEMA public TO $TRAGGE_READONLY_USER;
+
+      -- Create PgBouncer auth function
+      CREATE OR REPLACE FUNCTION public.pgbouncer_get_auth(p_username TEXT)
+      RETURNS TABLE(username TEXT, password TEXT) AS \$\$
+      BEGIN
+        RETURN QUERY
+        SELECT usename::TEXT, passwd::TEXT
+        FROM pg_catalog.pg_shadow
+        WHERE usename = p_username;
+      END;
+      \$\$ LANGUAGE plpgsql SECURITY DEFINER;
+
+      REVOKE ALL ON FUNCTION public.pgbouncer_get_auth(TEXT) FROM PUBLIC;
+      GRANT EXECUTE ON FUNCTION public.pgbouncer_get_auth(TEXT) TO $PGBOUNCER_AUTH_USER;
+
+      RAISE NOTICE 'Database users created successfully';
+    EOSQL
+
+    echo "User creation complete."
+
+  02-grant-privileges.sh: |
+    #!/bin/bash
+    set -e
+
+    echo "Setting default privileges for future tables..."
+
+    psql -v ON_ERROR_STOP=1 --username "$POSTGRES_USER" --dbname "$POSTGRES_DB" <<-EOSQL
+      -- Grant privileges on existing tables
+      GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO $TRAGGE_APP_USER;
+      GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO $TRAGGE_APP_USER;
+      GRANT SELECT ON ALL TABLES IN SCHEMA public TO $TRAGGE_READONLY_USER;
+
+      -- Set default privileges for tables created by admin
+      ALTER DEFAULT PRIVILEGES FOR ROLE $POSTGRES_USER IN SCHEMA public
+        GRANT SELECT, INSERT, UPDATE ON TABLES TO $TRAGGE_APP_USER;
+
+      ALTER DEFAULT PRIVILEGES FOR ROLE $POSTGRES_USER IN SCHEMA public
+        GRANT USAGE, SELECT ON SEQUENCES TO $TRAGGE_APP_USER;
+
+      ALTER DEFAULT PRIVILEGES FOR ROLE $POSTGRES_USER IN SCHEMA public
+        GRANT SELECT ON TABLES TO $TRAGGE_READONLY_USER;
+
+      RAISE NOTICE 'Default privileges set successfully';
+    EOSQL
+
+    echo "Privilege grants complete."
+---
+# PgBouncer ConfigMap (for connection pooling)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgbouncer-config
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: pgbouncer
+    app.kubernetes.io/part-of: tragge-platform
+data:
+  pgbouncer.ini: |
+    [databases]
+    ; Database connection settings
+    app = host=postgres port=5432 dbname=app
+
+    [pgbouncer]
+    ; Listen settings
+    listen_addr = 0.0.0.0
+    listen_port = 6432
+
+    ; Authentication
+    auth_type = scram-sha-256
+    auth_query = SELECT username, password FROM public.pgbouncer_get_auth($1)
+    auth_user = pgbouncer_auth
+
+    ; Connection pool settings
+    pool_mode = transaction
+    max_client_conn = 500
+    default_pool_size = 25
+    min_pool_size = 5
+    reserve_pool_size = 5
+    reserve_pool_timeout = 5
+
+    ; Connection limits
+    max_db_connections = 100
+    max_user_connections = 50
+
+    ; Timeouts
+    server_connect_timeout = 15
+    server_idle_timeout = 600
+    server_lifetime = 3600
+    client_idle_timeout = 0
+    client_login_timeout = 60
+
+    ; Security
+    server_tls_sslmode = require
+    server_tls_ca_file = /etc/pgbouncer/ssl/ca.crt
+
+    ; Logging
+    log_connections = 1
+    log_disconnections = 1
+    log_pooler_errors = 1
+    stats_period = 60
+
+    ; Admin access (restrict to localhost)
+    admin_users = pgbouncer_admin
+    stats_users = pgbouncer_stats
+
+  userlist.txt: |
+    ; PgBouncer user list
+    ; Format: "username" "password"
+    ; Note: In production, use auth_query instead of static userlist
+    ; This file is a fallback for emergencies

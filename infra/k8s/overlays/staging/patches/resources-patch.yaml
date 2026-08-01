@@ -1,0 +1,158 @@
+# =============================================================================
+# STAGING RESOURCE LIMIT PATCHES
+# =============================================================================
+# Reduce resource requests and limits to 50% of production values
+#
+# Production values (reference):
+# - user-bff: 64Mi/256Mi memory, 50m/500m CPU
+# - trade-bff: 128Mi/512Mi memory, 100m/1000m CPU
+# - trading-engine: 256Mi/1Gi memory, 200m/2000m CPU
+#
+# Staging values (this file):
+# - 50% reduction in memory limits
+# - 50% reduction in CPU limits
+# - Maintains same request/limit ratios
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  # =============================================================================
+  # USER BFF - Authentication and User Management
+  # =============================================================================
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "32Mi"      # 50% of 64Mi
+            cpu: "25m"          # 50% of 50m
+          limits:
+            memory: "128Mi"     # 50% of 256Mi
+            cpu: "250m"         # 50% of 500m
+    target:
+      kind: Deployment
+      name: user-bff
+
+  # =============================================================================
+  # TRADE BFF - WebSocket Trading Interface
+  # =============================================================================
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "64Mi"      # 50% of 128Mi
+            cpu: "50m"          # 50% of 100m
+          limits:
+            memory: "256Mi"     # 50% of 512Mi
+            cpu: "500m"         # 50% of 1000m
+    target:
+      kind: Deployment
+      name: trade-bff
+
+  # =============================================================================
+  # ADMIN BFF - Contest Management
+  # =============================================================================
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "32Mi"      # 50% of 64Mi
+            cpu: "25m"          # 50% of 50m
+          limits:
+            memory: "128Mi"     # 50% of 256Mi
+            cpu: "250m"         # 50% of 500m
+    target:
+      kind: Deployment
+      name: admin-bff
+
+  # =============================================================================
+  # TRADING ENGINE - Order Processing
+  # =============================================================================
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "128Mi"     # 50% of 256Mi
+            cpu: "100m"         # 50% of 200m
+          limits:
+            memory: "512Mi"     # 50% of 1Gi
+            cpu: "1000m"        # 50% of 2000m
+    target:
+      kind: Deployment
+      name: trading-engine
+
+  # =============================================================================
+  # MARKET INGESTOR - Market Data Ingestion
+  # =============================================================================
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "64Mi"      # 50% of 128Mi
+            cpu: "50m"          # 50% of 100m
+          limits:
+            memory: "256Mi"     # 50% of 512Mi
+            cpu: "500m"         # 50% of 1000m
+    target:
+      kind: Deployment
+      name: market-ingestor
+
+  # =============================================================================
+  # LEADERBOARD WORKER - Leaderboard Computation
+  # =============================================================================
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "64Mi"      # 50% of 128Mi
+            cpu: "50m"          # 50% of 100m
+          limits:
+            memory: "256Mi"     # 50% of 512Mi
+            cpu: "500m"         # 50% of 1000m
+    target:
+      kind: Deployment
+      name: leaderboard-worker
+
+  # =============================================================================
+  # FRONTENDS - Static Content Servers
+  # =============================================================================
+  # Frontends typically have lower resource requirements
+
+  # User Frontend
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "16Mi"      # 50% of 32Mi
+            cpu: "10m"          # 50% of 20m
+          limits:
+            memory: "64Mi"      # 50% of 128Mi
+            cpu: "100m"         # 50% of 200m
+    target:
+      kind: Deployment
+      name: frontend
+
+  # =============================================================================
+  # GATEWAY - Nginx Reverse Proxy
+  # =============================================================================
+  - patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/resources
+        value:
+          requests:
+            memory: "32Mi"      # 50% of 64Mi
+            cpu: "25m"          # 50% of 50m
+          limits:
+            memory: "128Mi"     # 50% of 256Mi
+            cpu: "250m"         # 50% of 500m
+    target:
+      kind: Deployment
+      name: gateway

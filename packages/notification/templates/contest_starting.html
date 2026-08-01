@@ -1,0 +1,89 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your Contest Starts Soon - Tragge</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+    <div style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
+        <!-- Header -->
+        <div style="background: linear-gradient(135deg, #10b981 0%, #059669 100%); padding: 30px; text-align: center;">
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Your Contest Starts Soon!</h1>
+            <p style="color: rgba(255,255,255,0.9); margin: 10px 0 0 0; font-size: 18px; font-weight: 500;">{{.ContestName}}</p>
+        </div>
+
+        <!-- Content -->
+        <div style="padding: 30px;">
+            <!-- Countdown Banner -->
+            <div style="text-align: center; margin-bottom: 25px; padding: 20px; background: linear-gradient(135deg, #fef3c7 0%, #fde68a 100%); border-radius: 8px;">
+                <div style="font-size: 14px; color: #92400e; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px;">Starts In</div>
+                <div style="font-size: 36px; font-weight: bold; color: #78350f;">{{.TimeUntilStart}}</div>
+            </div>
+
+            <!-- Contest Details -->
+            <div style="background-color: #f8f9fa; border-radius: 8px; padding: 20px; margin-bottom: 25px;">
+                <h2 style="color: #333; font-size: 16px; margin: 0 0 15px 0; text-transform: uppercase; letter-spacing: 0.5px;">Contest Details</h2>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #666;">Start Time:</td>
+                        <td style="padding: 8px 0; color: #333; font-weight: 500;">{{.StartTime}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666;">Duration:</td>
+                        <td style="padding: 8px 0; color: #333; font-weight: 500;">{{.Duration}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666;">End Time:</td>
+                        <td style="padding: 8px 0; color: #333;">{{.EndTime}}</td>
+                    </tr>
+                    {{if .StartingBalance}}
+                    <tr>
+                        <td style="padding: 8px 0; color: #666;">Starting Balance:</td>
+                        <td style="padding: 8px 0; color: #333; font-weight: 500;">{{.StartingBalance}}</td>
+                    </tr>
+                    {{end}}
+                    {{if .ParticipantCount}}
+                    <tr>
+                        <td style="padding: 8px 0; color: #666;">Participants:</td>
+                        <td style="padding: 8px 0; color: #333;">{{.ParticipantCount}}</td>
+                    </tr>
+                    {{end}}
+                </table>
+            </div>
+
+            <!-- Available Symbols -->
+            {{if .Symbols}}
+            <div style="margin-bottom: 25px;">
+                <h2 style="color: #333; font-size: 16px; margin: 0 0 15px 0; text-transform: uppercase; letter-spacing: 0.5px;">Available Symbols</h2>
+                <div style="display: flex; flex-wrap: wrap; gap: 8px;">
+                    {{range .Symbols}}
+                    <span style="display: inline-block; padding: 6px 12px; background-color: #e0e7ff; color: #3730a3; border-radius: 20px; font-size: 13px; font-weight: 500;">{{.}}</span>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
+
+            <!-- CTA Button -->
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{{.TradingURL}}" style="display: inline-block; padding: 14px 40px; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: #ffffff; text-decoration: none; border-radius: 8px; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(99, 102, 241, 0.3);">Go to Trading</a>
+            </div>
+
+            <!-- Tips -->
+            <div style="background-color: #f0fdf4; border-left: 4px solid #10b981; padding: 15px 20px; border-radius: 0 8px 8px 0; margin-top: 20px;">
+                <p style="margin: 0; color: #166534; font-size: 14px;">
+                    <strong>Pro Tip:</strong> Log in early to familiarize yourself with the trading interface and ensure you're ready when the contest begins!
+                </p>
+            </div>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #e9ecef;">
+            <p style="color: #999; font-size: 12px; margin: 0;">
+                You're receiving this email because you registered for this contest on <strong>Tragge</strong>.<br>
+                Good luck and happy trading!
+            </p>
+        </div>
+    </div>
+</body>
+</html>

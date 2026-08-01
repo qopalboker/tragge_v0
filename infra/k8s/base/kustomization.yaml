@@ -1,0 +1,56 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: tragge-base
+
+namespace: tragge
+
+resources:
+  # Namespace
+  - namespace.yaml
+
+  # Configuration
+  - configmap.yaml
+  - secrets.yaml
+
+  # Infrastructure
+  # PostgreSQL: single instance for dev/staging; production overlay adds postgres-ha.yaml
+  - postgres.yaml           # Single instance (development/staging)
+  # postgres-ha.yaml is added by the production overlay (not included here)
+  - pgbouncer-config.yaml   # PgBouncer connection pooler configuration
+  - pgbouncer-secrets.yaml  # PgBouncer authentication
+  - pgbouncer.yaml          # PgBouncer deployment
+  - redis.yaml
+  - redpanda.yaml
+
+  # Backend services (consolidated)
+  - api-server.yaml       # user-bff + admin-bff + payment-service
+  - trading-core.yaml     # trading-engine + market-ingestor + trade-bff
+  - worker.yaml           # leaderboard-worker + settlement-service + contest-scheduler + free-contest-generator
+
+  # Frontend service (unified)
+  - frontend.yaml
+
+  # Gateway
+  - gateway.yaml
+
+  # Ingress and TLS
+  - ingress.yaml
+  - cluster-issuer.yaml
+  - certificate.yaml
+
+  # Autoscaling
+  - hpa.yaml
+  - prometheus-adapter-config.yaml
+
+  # Pod Disruption Budgets
+  - pdb.yaml
+
+  # Network Policies (Zero-Trust Networking)
+  - network-policies.yaml
+  - redis-ha-network-policies.yaml
+
+commonLabels:
+  app.kubernetes.io/managed-by: kustomize
+  app.kubernetes.io/version: "1.0.0"

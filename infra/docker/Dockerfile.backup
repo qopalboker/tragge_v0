@@ -1,0 +1,23 @@
+# Dockerfile.backup - Backup tools image for PostgreSQL and Redis backups to S3
+#
+# This image provides pg_dump, psql, redis-cli, and AWS CLI v2 in a single
+# Alpine-based image for use by the daily-backup CronJobs.
+#
+# Build:
+#   docker build -f infra/docker/Dockerfile.backup -t backup-tools:latest .
+#
+# Note: aws-cli is not available as an Alpine package. We install the official
+# AWS CLI v2 binary from Amazon's distribution.
+
+FROM redis:7-alpine
+
+RUN apk add --no-cache \
+        bash \
+        curl \
+        unzip \
+        postgresql16-client \
+    && curl -fsSL https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip \
+         -o /tmp/awscliv2.zip \
+    && unzip /tmp/awscliv2.zip -d /tmp \
+    && /tmp/aws/install \
+    && rm -rf /tmp/aws /tmp/awscliv2.zip

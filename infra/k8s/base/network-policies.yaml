@@ -1,0 +1,944 @@
+# =============================================================================
+# Network Policies for Tragge Trading Platform
+# =============================================================================
+# Implements defense in depth with zero-trust networking:
+# - Default deny all ingress/egress
+# - Explicit allow rules for each service
+# - Least privilege access patterns
+# =============================================================================
+
+# =============================================================================
+# 1. DEFAULT DENY ALL - Foundation of Zero-Trust Networking
+# =============================================================================
+# These policies deny all ingress and egress traffic by default.
+# All communication must be explicitly allowed by subsequent policies.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all-ingress
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: default-deny
+spec:
+  # Apply to all pods in the namespace
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all-egress
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: default-deny
+spec:
+  # Apply to all pods in the namespace
+  podSelector: {}
+  policyTypes:
+    - Egress
+
+# =============================================================================
+# 2. ALLOW DNS - Required for all pods to resolve service names
+# =============================================================================
+# All pods need DNS access to resolve Kubernetes service names.
+# kube-dns runs in kube-system namespace on port 53 (UDP and TCP).
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-dns-egress
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: allow-dns
+spec:
+  # Apply to all pods in the namespace
+  podSelector: {}
+  policyTypes:
+    - Egress
+  egress:
+    # Allow DNS queries to kube-dns in kube-system namespace
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+# =============================================================================
+# 3. GATEWAY POLICY
+# =============================================================================
+# Gateway (nginx reverse proxy) receives traffic from ingress-nginx
+# and forwards to consolidated services and frontends.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: gateway-network-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: service-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: gateway
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from ingress-nginx namespace (external traffic)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow traffic from within tragge namespace (for health checks)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: tragge
+      ports:
+        - protocol: TCP
+          port: 8080
+  egress:
+    # Allow egress to api-server (user-bff on 8081, admin-bff on 8083, payment-service on 8091)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-server
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8083
+        - protocol: TCP
+          port: 8091
+    # Allow egress to trading-core (trade-bff on 8082)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-core
+      ports:
+        - protocol: TCP
+          port: 8082
+    # Allow egress to frontend (unified)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: frontend
+      ports:
+        - protocol: TCP
+          port: 80
+
+# =============================================================================
+# 4. FRONTEND POLICIES
+# =============================================================================
+# Frontends only receive traffic from gateway, no egress needed (static files)
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: frontend-network-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: service-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow traffic from gateway only
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+      ports:
+        - protocol: TCP
+          port: 80
+    # Allow traffic from ingress-nginx (direct access path)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 80
+
+# =============================================================================
+# 5. API-SERVER POLICY
+# =============================================================================
+# api-server consolidates user-bff (8081), admin-bff (8083), payment-service (8091).
+# - Ingress: from gateway, ingress-nginx, prometheus
+# - Egress: to postgres, redis, redpanda, external HTTPS (payment providers)
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: api-server-network-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: service-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: api-server
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from gateway
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8083
+        - protocol: TCP
+          port: 8091
+    # Allow traffic from ingress-nginx (direct access path)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8083
+        - protocol: TCP
+          port: 8091
+    # Allow prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8083
+        - protocol: TCP
+          port: 8091
+  egress:
+    # Allow egress to PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow egress to Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow egress to Redpanda (Kafka)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redpanda
+      ports:
+        - protocol: TCP
+          port: 9092
+    # Allow egress to external payment providers (NOWPayments, Jibit, Payment4)
+    # Using IP blocks for external HTTPS access
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Exclude private IP ranges
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              # Exclude link-local
+              - 169.254.0.0/16
+              # Exclude loopback
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+
+# =============================================================================
+# 6. TRADING-CORE POLICY
+# =============================================================================
+# trading-core consolidates trade-bff (8082), trading-engine (8085),
+# market-ingestor (8084).
+# - Ingress: from gateway, ingress-nginx, api-server (admin controls), prometheus
+# - Egress: to postgres, redis, redpanda, external HTTPS (market data providers)
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: trading-core-network-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: service-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: trading-core
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow traffic from gateway (trade-bff on 8082)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+      ports:
+        - protocol: TCP
+          port: 8082
+    # Allow traffic from ingress-nginx (direct access for WebSocket)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 8082
+    # Allow traffic from api-server (admin-bff controls market ingestor)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-server
+      ports:
+        - protocol: TCP
+          port: 8084
+    # Allow prometheus scraping
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8082
+        - protocol: TCP
+          port: 8084
+        - protocol: TCP
+          port: 8085
+  egress:
+    # Allow egress to PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow egress to Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow egress to Redpanda (Kafka)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redpanda
+      ports:
+        - protocol: TCP
+          port: 9092
+    # Allow egress to external market data providers (Massive, TwelveData)
+    # Using IP blocks for external HTTPS/WSS access
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+            except:
+              # Exclude private IP ranges
+              - 10.0.0.0/8
+              - 172.16.0.0/12
+              - 192.168.0.0/16
+              # Exclude link-local
+              - 169.254.0.0/16
+              # Exclude loopback
+              - 127.0.0.0/8
+      ports:
+        - protocol: TCP
+          port: 443
+
+# =============================================================================
+# 7. WORKER POLICY
+# =============================================================================
+# worker consolidates leaderboard-worker (8086), settlement-service (8087),
+# contest-scheduler (8088), free-contest-generator (8089).
+# - Ingress: from prometheus (metrics scraping), api-server (admin triggers settlement)
+# - Egress: to postgres, redis, redpanda
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: worker-network-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: service-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: worker
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow prometheus scraping from monitoring namespace
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8086
+        - protocol: TCP
+          port: 8087
+        - protocol: TCP
+          port: 8088
+        - protocol: TCP
+          port: 8089
+    # Allow api-server to trigger manual settlement
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-server
+      ports:
+        - protocol: TCP
+          port: 8087
+  egress:
+    # Allow egress to PostgreSQL
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: postgres
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow egress to Redis
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redis
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow egress to Redpanda (Kafka)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redpanda
+      ports:
+        - protocol: TCP
+          port: 9092
+
+# =============================================================================
+# 8. POSTGRESQL POLICY
+# =============================================================================
+# PostgreSQL accepts connections from consolidated services only.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: postgres-network-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: database-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgres
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow connections from api-server
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-server
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow connections from trading-core
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-core
+      ports:
+        - protocol: TCP
+          port: 5432
+    # Allow connections from worker
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: worker
+      ports:
+        - protocol: TCP
+          port: 5432
+
+# =============================================================================
+# 9. REDIS POLICY
+# =============================================================================
+# Redis accepts connections from consolidated services only.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redis-network-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: database-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow connections from api-server
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-server
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow connections from trading-core
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-core
+      ports:
+        - protocol: TCP
+          port: 6379
+    # Allow connections from worker
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: worker
+      ports:
+        - protocol: TCP
+          port: 6379
+
+# =============================================================================
+# 10. REDPANDA (KAFKA) POLICY
+# =============================================================================
+# Redpanda accepts connections from services that produce/consume events.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: redpanda-network-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: database-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redpanda
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow connections from api-server (publishes contest events, payment events)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-server
+      ports:
+        - protocol: TCP
+          port: 9092
+    # Allow connections from trading-core (publishes ticks/fills, consumes orders/ticks)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-core
+      ports:
+        - protocol: TCP
+          port: 9092
+    # Allow connections from worker (consumes pnl, contest events, settlement)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: worker
+      ports:
+        - protocol: TCP
+          port: 9092
+    # Allow Redpanda Console access for UI (if deployed in tragge namespace)
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redpanda-console
+      ports:
+        - protocol: TCP
+          port: 9092
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 9644
+
+# =============================================================================
+# 11. PROMETHEUS SCRAPING POLICY
+# =============================================================================
+# Allow Prometheus to scrape metrics from all services.
+# This policy allows prometheus pods to make egress connections to all services.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: prometheus-scrape-egress-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: monitoring-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: prometheus
+  policyTypes:
+    - Egress
+  egress:
+    # Allow scraping api-server (user-bff 8081, admin-bff 8083, payment-service 8091)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: api-server
+      ports:
+        - protocol: TCP
+          port: 8081
+        - protocol: TCP
+          port: 8083
+        - protocol: TCP
+          port: 8091
+    # Allow scraping trading-core (trade-bff 8082, market-ingestor 8084, trading-engine 8085)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: trading-core
+      ports:
+        - protocol: TCP
+          port: 8082
+        - protocol: TCP
+          port: 8084
+        - protocol: TCP
+          port: 8085
+    # Allow scraping worker (leaderboard 8086, settlement 8087, scheduler 8088, generator 8089)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: worker
+      ports:
+        - protocol: TCP
+          port: 8086
+        - protocol: TCP
+          port: 8087
+        - protocol: TCP
+          port: 8088
+        - protocol: TCP
+          port: 8089
+    # Allow scraping gateway
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: gateway
+      ports:
+        - protocol: TCP
+          port: 8080
+    # Allow scraping redpanda (admin port)
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: redpanda
+      ports:
+        - protocol: TCP
+          port: 9644
+
+# =============================================================================
+# 12. MONITORING NAMESPACE ACCESS POLICY
+# =============================================================================
+# Allow monitoring namespace (prometheus, grafana) to access tragge services.
+# This is needed when prometheus runs in a separate monitoring namespace.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-monitoring-ingress
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: monitoring-policy
+spec:
+  # Apply to all pods that expose metrics
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values:
+          - api-server
+          - trading-core
+          - worker
+          - gateway
+          - redpanda
+  policyTypes:
+    - Ingress
+  ingress:
+    # Allow ingress from monitoring namespace for prometheus scraping
+    # Restricted to known metrics ports only (defense in depth)
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 8080   # gateway
+        - protocol: TCP
+          port: 8081   # user-bff
+        - protocol: TCP
+          port: 8082   # trade-bff
+        - protocol: TCP
+          port: 8083   # admin-bff
+        - protocol: TCP
+          port: 8084   # market-ingestor
+        - protocol: TCP
+          port: 8085   # trading-engine
+        - protocol: TCP
+          port: 8086   # leaderboard-worker
+        - protocol: TCP
+          port: 8087   # settlement-service
+        - protocol: TCP
+          port: 8088   # contest-scheduler
+        - protocol: TCP
+          port: 8089   # free-contest-generator
+        - protocol: TCP
+          port: 8091   # payment-service
+        - protocol: TCP
+          port: 9644   # redpanda admin
+
+# =============================================================================
+# 13. GRAFANA POLICY (if deployed in tragge namespace)
+# =============================================================================
+# Grafana needs to reach prometheus, loki, and tempo for dashboards.
+
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: grafana-network-policy
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: network-policy
+    app.kubernetes.io/component: security
+    app.kubernetes.io/part-of: tragge-platform
+    network-policy/type: monitoring-policy
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: grafana
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    # Allow ingress from ingress-nginx for dashboard access
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: ingress-nginx
+      ports:
+        - protocol: TCP
+          port: 3000
+    # Allow ingress from within the namespace
+    - from:
+        - podSelector: {}
+      ports:
+        - protocol: TCP
+          port: 3000
+  egress:
+    # Allow egress to Prometheus
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 9090
+    # Allow egress to Loki
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: loki
+      ports:
+        - protocol: TCP
+          port: 3100
+    # Allow egress to Tempo
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/name: tempo
+      ports:
+        - protocol: TCP
+          port: 3200
+    # Allow egress to monitoring namespace if components are there
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+      ports:
+        - protocol: TCP
+          port: 9090
+        - protocol: TCP
+          port: 3100
+        - protocol: TCP
+          port: 3200
+
+# =============================================================================
+# TROUBLESHOOTING GUIDE
+# =============================================================================
+#
+# Testing Network Policies:
+# -------------------------
+#
+# 1. Verify policies are applied:
+#    kubectl get networkpolicies -n tragge
+#
+# 2. Test connectivity from a debug pod:
+#    kubectl run debug --rm -it --image=nicolaka/netshoot -n tragge -- /bin/bash
+#    # Inside the pod:
+#    curl -v http://postgres:5432  # Should timeout (no policy allows this)
+#
+# 3. Test from a specific service:
+#    kubectl exec -it deploy/api-server -n tragge -- sh
+#    # Inside the pod:
+#    nc -zv postgres 5432          # Should succeed
+#    nc -zv trading-core 8085      # Should timeout (not allowed)
+#
+# 4. Check DNS resolution:
+#    kubectl exec -it deploy/api-server -n tragge -- nslookup postgres
+#
+# 5. Verify specific policy:
+#    kubectl describe networkpolicy api-server-network-policy -n tragge
+#
+# Common Debugging Steps:
+# -----------------------
+#
+# 1. If traffic is blocked unexpectedly:
+#    - Check pod labels: kubectl get pods --show-labels -n tragge
+#    - Verify namespace labels: kubectl get ns --show-labels
+#    - Check policy selectors: kubectl describe netpol <name> -n tragge
+#
+# 2. If DNS is not working:
+#    - Verify kube-dns/coredns labels: kubectl get pods -n kube-system --show-labels
+#    - Check allow-dns-egress policy is applied
+#
+# 3. If prometheus cannot scrape:
+#    - Verify monitoring namespace label exists
+#    - Check prometheus pod labels match policy selectors
+#
+# Temporarily Disable Network Policies:
+# -------------------------------------
+#
+# Option 1: Delete specific policy:
+#    kubectl delete networkpolicy <policy-name> -n tragge
+#
+# Option 2: Delete all policies (for troubleshooting only):
+#    kubectl delete networkpolicies --all -n tragge
+#
+# Option 3: Create a permissive override policy:
+#    kubectl apply -f - <<EOF
+#    apiVersion: networking.k8s.io/v1
+#    kind: NetworkPolicy
+#    metadata:
+#      name: allow-all-debug
+#      namespace: tragge
+#    spec:
+#      podSelector: {}
+#      ingress:
+#        - {}
+#      egress:
+#        - {}
+#      policyTypes:
+#        - Ingress
+#        - Egress
+#    EOF
+#
+# Remember to remove the permissive policy after debugging:
+#    kubectl delete networkpolicy allow-all-debug -n tragge
+#
+# Re-apply policies after troubleshooting:
+#    kubectl apply -k infra/k8s/base
+#
+# =============================================================================

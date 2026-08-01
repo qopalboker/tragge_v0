@@ -1,0 +1,131 @@
+{
+  "version": "1.0.0",
+  "name": "tralent_like_v1",
+  "description": "Tralent-like prize distribution with top 30% winners",
+  "winners_percentage": 30,
+  "distributions": [
+    {
+      "min_participants": 1,
+      "max_participants": 10,
+      "payouts": [
+        { "rank": 1, "percentage": 50.00 },
+        { "rank": 2, "percentage": 30.00 },
+        { "rank": 3, "percentage": 20.00 }
+      ]
+    },
+    {
+      "min_participants": 11,
+      "max_participants": 20,
+      "payouts": [
+        { "rank": 1, "percentage": 40.00 },
+        { "rank": 2, "percentage": 25.00 },
+        { "rank": 3, "percentage": 15.00 },
+        { "rank": 4, "percentage": 10.00 },
+        { "rank": 5, "percentage": 6.00 },
+        { "rank": 6, "percentage": 4.00 }
+      ]
+    },
+    {
+      "min_participants": 21,
+      "max_participants": 50,
+      "payouts": [
+        { "rank": 1, "percentage": 30.00 },
+        { "rank": 2, "percentage": 20.00 },
+        { "rank": 3, "percentage": 12.00 },
+        { "rank": 4, "percentage": 8.00 },
+        { "rank": 5, "percentage": 6.00 },
+        { "rank_from": 6, "rank_to": 10, "percentage": 14.00 },
+        { "rank_from": 11, "rank_to": 15, "percentage": 10.00 }
+      ]
+    },
+    {
+      "min_participants": 51,
+      "max_participants": 100,
+      "payouts": [
+        { "rank": 1, "percentage": 25.00 },
+        { "rank": 2, "percentage": 15.00 },
+        { "rank": 3, "percentage": 10.00 },
+        { "rank": 4, "percentage": 7.00 },
+        { "rank": 5, "percentage": 5.00 },
+        { "rank_from": 6, "rank_to": 10, "percentage": 15.00 },
+        { "rank_from": 11, "rank_to": 15, "percentage": 10.00 },
+        { "rank_from": 16, "rank_to": 20, "percentage": 7.00 },
+        { "rank_from": 21, "rank_to": 30, "percentage": 6.00 }
+      ]
+    },
+    {
+      "min_participants": 101,
+      "max_participants": 250,
+      "payouts": [
+        { "rank": 1, "percentage": 20.00 },
+        { "rank": 2, "percentage": 12.00 },
+        { "rank": 3, "percentage": 8.00 },
+        { "rank": 4, "percentage": 6.00 },
+        { "rank": 5, "percentage": 4.00 },
+        { "rank_from": 6, "rank_to": 10, "percentage": 12.00 },
+        { "rank_from": 11, "rank_to": 15, "percentage": 8.00 },
+        { "rank_from": 16, "rank_to": 25, "percentage": 10.00 },
+        { "rank_from": 26, "rank_to": 40, "percentage": 9.00 },
+        { "rank_from": 41, "rank_to": 60, "percentage": 7.00 },
+        { "rank_from": 61, "rank_to": 75, "percentage": 4.00 }
+      ]
+    },
+    {
+      "min_participants": 251,
+      "max_participants": 500,
+      "payouts": [
+        { "rank": 1, "percentage": 15.00 },
+        { "rank": 2, "percentage": 10.00 },
+        { "rank": 3, "percentage": 7.00 },
+        { "rank": 4, "percentage": 5.00 },
+        { "rank": 5, "percentage": 4.00 },
+        { "rank_from": 6, "rank_to": 10, "percentage": 10.00 },
+        { "rank_from": 11, "rank_to": 20, "percentage": 10.00 },
+        { "rank_from": 21, "rank_to": 35, "percentage": 9.00 },
+        { "rank_from": 36, "rank_to": 55, "percentage": 9.00 },
+        { "rank_from": 56, "rank_to": 80, "percentage": 8.00 },
+        { "rank_from": 81, "rank_to": 110, "percentage": 7.00 },
+        { "rank_from": 111, "rank_to": 150, "percentage": 6.00 }
+      ]
+    },
+    {
+      "min_participants": 501,
+      "max_participants": 1000,
+      "payouts": [
+        { "rank": 1, "percentage": 12.00 },
+        { "rank": 2, "percentage": 8.00 },
+        { "rank": 3, "percentage": 5.50 },
+        { "rank": 4, "percentage": 4.00 },
+        { "rank": 5, "percentage": 3.00 },
+        { "rank_from": 6, "rank_to": 10, "percentage": 8.00 },
+        { "rank_from": 11, "rank_to": 20, "percentage": 8.00 },
+        { "rank_from": 21, "rank_to": 40, "percentage": 9.00 },
+        { "rank_from": 41, "rank_to": 70, "percentage": 9.00 },
+        { "rank_from": 71, "rank_to": 110, "percentage": 9.00 },
+        { "rank_from": 111, "rank_to": 160, "percentage": 8.50 },
+        { "rank_from": 161, "rank_to": 220, "percentage": 8.00 },
+        { "rank_from": 221, "rank_to": 300, "percentage": 8.00 }
+      ]
+    },
+    {
+      "min_participants": 1001,
+      "max_participants": null,
+      "payouts": [
+        { "rank": 1, "percentage": 10.00 },
+        { "rank": 2, "percentage": 6.50 },
+        { "rank": 3, "percentage": 4.50 },
+        { "rank": 4, "percentage": 3.00 },
+        { "rank": 5, "percentage": 2.50 },
+        { "rank_from": 6, "rank_to": 10, "percentage": 6.50 },
+        { "rank_from": 11, "rank_to": 25, "percentage": 7.00 },
+        { "rank_from": 26, "rank_to": 50, "percentage": 7.50 },
+        { "rank_from": 51, "rank_to": 100, "percentage": 9.00 },
+        { "rank_from": 101, "rank_to": 175, "percentage": 9.50 },
+        { "rank_from": 176, "rank_to": 275, "percentage": 10.00 },
+        { "rank_from": 276, "rank_to": 400, "percentage": 10.00 },
+        { "rank_from": 401, "rank_to": 550, "percentage": 8.00 },
+        { "rank_from": 551, "rank_to": 750, "percentage": 6.00 }
+      ]
+    }
+  ]
+}

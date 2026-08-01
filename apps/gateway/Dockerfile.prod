@@ -1,0 +1,27 @@
+FROM nginx:1.25-alpine
+
+# Remove default nginx config
+RUN rm /etc/nginx/conf.d/default.conf
+
+# Copy production nginx config and includes
+COPY nginx.prod.conf /etc/nginx/nginx.conf
+COPY includes/ /etc/nginx/includes/
+COPY avatars /var/www/avatars/
+
+# Use the nginx user already present in the base image (uid 101, gid 101).
+# Ownership of runtime directories is granted to this existing user.
+RUN chown -R nginx:nginx /var/cache/nginx /var/log/nginx /etc/nginx/conf.d && \
+    touch /var/run/nginx.pid && \
+    chown nginx:nginx /var/run/nginx.pid
+
+# Expose port 8080 (non-privileged; external LB handles port 80)
+EXPOSE 8080
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget --quiet --tries=1 --spider http://localhost:8080/health || exit 1
+
+# Run as non-root
+USER nginx
+
+CMD ["nginx", "-g", "daemon off;"]

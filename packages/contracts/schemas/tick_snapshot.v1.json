@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tragge.io/schemas/tick_snapshot.v1.json",
+  "title": "TickSnapshot",
+  "description": "Market tick snapshot containing bid/ask/last prices for symbols",
+  "type": "object",
+  "required": ["ts", "symbols"],
+  "additionalProperties": false,
+  "properties": {
+    "ts": {
+      "type": "integer",
+      "description": "Unix timestamp in milliseconds"
+    },
+    "symbols": {
+      "type": "array",
+      "description": "List of symbol tick data",
+      "items": {
+        "type": "object",
+        "required": ["symbol", "bid", "ask", "last"],
+        "additionalProperties": false,
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "description": "Trading symbol (e.g., BTCUSD)"
+          },
+          "bid": {
+            "type": "number",
+            "description": "Best bid price"
+          },
+          "ask": {
+            "type": "number",
+            "description": "Best ask price"
+          },
+          "last": {
+            "type": "number",
+            "description": "Last traded price"
+          }
+        }
+      }
+    }
+  }
+}

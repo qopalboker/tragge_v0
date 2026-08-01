@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Withdrawal Completed</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+    <div style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
+        <!-- Header -->
+        <div style="background-color: #16a34a; padding: 30px; text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 10px;">&#128176;</div>
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Withdrawal Completed!</h1>
+        </div>
+
+        <!-- Content -->
+        <div style="padding: 30px;">
+            <p style="color: #333; margin-top: 0;">Hello{{if .UserName}} {{.UserName}}{{end}},</p>
+
+            <p style="color: #333;">Great news! Your withdrawal has been <strong style="color: #16a34a;">successfully completed</strong>.</p>
+
+            <div style="background-color: #f0fdf4; border-left: 4px solid #16a34a; padding: 15px; margin: 20px 0; border-radius: 0 6px 6px 0;">
+                <p style="margin: 0; color: #166534; font-size: 18px;"><strong>Amount: {{.Amount}}</strong></p>
+            </div>
+
+            <p style="color: #333;">The funds have been transferred to your payout destination. Depending on your payment method, it may take a short time for the funds to appear in your account.</p>
+
+            <div style="background-color: #f8f9fa; padding: 15px; margin: 20px 0; border-radius: 6px;">
+                <p style="margin: 0; color: #666; font-size: 14px;"><strong>Note:</strong> Bank transfers may take 1-2 additional business days to reflect in your account.</p>
+            </div>
+
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{{.DashboardURL}}" style="display: inline-block; background-color: #16a34a; color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 500;">View Transaction History</a>
+            </div>
+
+            <p style="color: #333; margin-bottom: 0;">Thank you for using Tragge!</p>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #e9ecef;">
+            <p style="color: #999; font-size: 12px; margin: 0 0 10px 0;">
+                This email was sent by <strong>Tragge</strong> regarding your withdrawal request.
+            </p>
+            <p style="color: #999; font-size: 12px; margin: 0;">
+                If you have any questions, please contact our support team.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,0 +1,436 @@
+# =============================================================================
+# golangci-lint Configuration for tragge Trading Platform (v2)
+# =============================================================================
+#
+# This configuration is tailored for a financial trading application where
+# security, reliability, and performance are critical. It balances strictness
+# with practicality to avoid excessive false positives.
+#
+# How to run locally:
+#   make lint-go              # Run all linters
+#   make lint-go-fix          # Run with auto-fix where possible
+#   golangci-lint run ./...   # Direct invocation
+#   golangci-lint run --verbose ./...  # With verbose output
+#
+# How to suppress specific warnings (when justified):
+#   1. Inline comment:  //nolint:lintername // reason for suppression
+#   2. Block comment:   //nolint:lintername,anotherlinter
+#   3. File-level:      //nolint:lintername at top of file
+#   4. Add to exclude-rules below for project-wide patterns
+#
+# Example suppression:
+#   defer resp.Body.Close() //nolint:errcheck // error on close is not actionable
+#
+# =============================================================================
+
+version: "2"
+
+run:
+  # Timeout for analysis, increased for large codebases
+  timeout: 5m
+
+  # Include test files in linting (some linters are test-aware)
+  tests: true
+
+  # Number of CPUs to use (0 = all available)
+  concurrency: 0
+
+# =============================================================================
+# Enabled Linters
+# =============================================================================
+#
+# Each linter is selected for a specific purpose. Security-critical linters
+# are prioritized for this financial trading platform.
+#
+linters:
+  # Disable all linters by default, then enable specific ones
+  disable-all: true
+
+  enable:
+    # -------------------------------------------------------------------------
+    # Security Linters (Critical for financial applications)
+    # -------------------------------------------------------------------------
+
+    # gosec: Inspects source code for security problems
+    # Essential for detecting SQL injection, command injection, hardcoded
+    # credentials, weak crypto, and other OWASP vulnerabilities
+    - gosec
+
+    # -------------------------------------------------------------------------
+    # Bug Detection Linters
+    # -------------------------------------------------------------------------
+
+    # errcheck: Checks for unchecked errors in Go code
+    # Critical for financial apps where ignored errors can lead to
+    # incorrect state, lost transactions, or security vulnerabilities
+    - errcheck
+
+    # govet: Reports suspicious constructs
+    # Catches issues like printf format mismatches, unreachable code,
+    # and lock/unlock issues. Built-in to Go compiler but more thorough here
+    - govet
+
+    # staticcheck: Advanced static analysis
+    # Detects bugs, performance issues, and code simplifications
+    # Includes checks for deprecated functions and style issues
+    - staticcheck
+
+    # ineffassign: Detects assignments to existing variables not used
+    # Catches bugs where computed values are accidentally discarded
+    - ineffassign
+
+    # nilerr: Finds code that returns nil even when an error is checked
+    # Prevents subtle bugs where error handling path returns wrong value
+    - nilerr
+
+    # Note: exportloopref removed — Go 1.22+ fixes loop variable capture
+
+    # -------------------------------------------------------------------------
+    # Resource Management Linters (Critical for long-running services)
+    # -------------------------------------------------------------------------
+
+    # bodyclose: Checks HTTP response body is closed
+    # Memory leaks from unclosed bodies can crash trading services
+    - bodyclose
+
+    # noctx: Finds HTTP requests without context.Context
+    # Without context, requests can't be cancelled, leading to goroutine
+    # leaks and unresponsive services during shutdown
+    - noctx
+
+    # sqlclosecheck: Checks that sql.Rows and sql.Stmt are closed
+    # Database connection leaks can exhaust connection pools
+    - sqlclosecheck
+
+    # -------------------------------------------------------------------------
+    # Performance Linters
+    # -------------------------------------------------------------------------
+
+    # prealloc: Finds slice declarations that could be preallocated
+    # Reduces GC pressure in high-throughput trading engine
+    - prealloc
+
+    # unconvert: Removes unnecessary type conversions
+    # Minor performance improvement and cleaner code
+    - unconvert
+
+    # -------------------------------------------------------------------------
+    # Code Quality & Complexity Linters
+    # -------------------------------------------------------------------------
+
+    # unused: Finds unused code (variables, functions, types, etc.)
+    # Keeps codebase clean and maintainable
+    - unused
+
+    # gocyclo: Checks cyclomatic complexity of functions
+    # Complex functions are hard to test and prone to bugs
+    - gocyclo
+
+    # goconst: Finds repeated strings that could be constants
+    # Prevents typos and makes code more maintainable
+    - goconst
+
+    # misspell: Finds commonly misspelled English words
+    # Catches typos in comments and string literals
+    - misspell
+
+# =============================================================================
+# Formatters (separated from linters in v2)
+# =============================================================================
+formatters:
+  enable:
+    # gofmt: Checks whether code was gofmt-ed
+    # Ensures consistent formatting across the team
+    - gofmt
+
+    # goimports: Checks import statements are organized
+    # Groups imports correctly and removes unused imports
+    - goimports
+
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/Parsaeffatravesh/tragge
+
+# =============================================================================
+# Linter Settings
+# =============================================================================
+linters-settings:
+
+  # -------------------------------------------------------------------------
+  # gosec - Security Issues
+  # -------------------------------------------------------------------------
+  gosec:
+    # Exclude G104 (audit errors not checked) for deferred Close() calls
+    # Checking error from deferred close is often impractical and clutters code
+    excludes:
+      - G104  # Errors unhandled - too noisy for defer statements
+
+    # Include all other security checks
+    includes:
+      - G101  # Hardcoded credentials
+      - G102  # Bind to all interfaces
+      - G103  # Audit use of unsafe block
+      - G106  # Audit use of ssh.InsecureIgnoreHostKey
+      - G107  # SSRF via variable in URL
+      - G108  # Profiling endpoints in production
+      - G109  # Integer overflow in strconv
+      - G110  # Decompression bomb
+      - G201  # SQL query construction using format string
+      - G202  # SQL query construction using string concatenation
+      - G203  # Use of unescaped data in HTML templates
+      - G204  # Audit use of command execution
+      - G301  # Poor file permissions used when creating a directory
+      - G302  # Poor file permissions used with chmod
+      - G303  # Creating tempfile with predictable path
+      - G304  # File path provided as taint input
+      - G305  # File traversal when extracting zip/tar archive
+      - G306  # Poor file permissions when writing file
+      - G307  # Deferring a method which returns an error
+      - G401  # Detect use of DES, RC4, MD5, SHA1
+      - G402  # TLS InsecureSkipVerify
+      - G403  # Minimum RSA key length
+      - G404  # Insecure random number source (rand vs crypto/rand)
+      - G501  # Import blocklist: crypto/md5
+      - G502  # Import blocklist: crypto/des
+      - G503  # Import blocklist: crypto/rc4
+      - G504  # Import blocklist: net/http/cgi
+      - G505  # Import blocklist: crypto/sha1
+      - G601  # Implicit memory aliasing in for loop (legacy)
+      - G602  # Slice access out of bounds
+
+    # Severity filter (only show medium and high)
+    severity: medium
+
+    # Confidence filter
+    confidence: medium
+
+    # Concurrency for analysis
+    concurrency: 4
+
+  # -------------------------------------------------------------------------
+  # govet - Suspicious Constructs
+  # -------------------------------------------------------------------------
+  govet:
+    # Enable all analyzers
+    enable-all: true
+
+    # Disable specific analyzers if needed
+    disable:
+      - fieldalignment  # Useful but too strict for normal development
+
+    # Settings for specific analyzers
+    settings:
+      shadow:
+        # Check for variable shadowing
+        strict: false  # Only report clearly problematic shadowing
+
+  # -------------------------------------------------------------------------
+  # errcheck - Error Checking
+  # -------------------------------------------------------------------------
+  errcheck:
+    # Check for errors from type assertions
+    check-type-assertions: true
+
+    # Check for blank identifier error assignment (e.g., _ = fn())
+    check-blank: true
+
+    # List of functions to ignore (common safe-to-ignore)
+    exclude-functions:
+      # Common print functions don't need error checking
+      - fmt.Print
+      - fmt.Println
+      - fmt.Printf
+      - fmt.Fprint
+      - fmt.Fprintln
+      - fmt.Fprintf
+      # Sync primitives
+      - (*sync.WaitGroup).Add
+      - (*sync.WaitGroup).Done
+
+  # -------------------------------------------------------------------------
+  # gocyclo - Cyclomatic Complexity
+  # -------------------------------------------------------------------------
+  gocyclo:
+    # Maximum allowed complexity per function
+    # 15 is a good balance - flags truly complex code without too many false positives
+    # Trading engine order processing may exceed this, use //nolint with justification
+    min-complexity: 15
+
+  # -------------------------------------------------------------------------
+  # goconst - Repeated Strings
+  # -------------------------------------------------------------------------
+  goconst:
+    # Minimum length of string to consider
+    min-len: 3
+
+    # Minimum number of occurrences before flagging
+    min-occurrences: 3
+
+    # Ignore test files
+    ignore-tests: true
+
+    # Match constant with existing constants
+    match-constant: true
+
+    # Include numbers in the check
+    numbers: false
+
+  # -------------------------------------------------------------------------
+  # misspell - Spelling
+  # -------------------------------------------------------------------------
+  misspell:
+    # Use US English spelling
+    locale: US
+
+  # -------------------------------------------------------------------------
+  # prealloc - Slice Preallocation
+  # -------------------------------------------------------------------------
+  prealloc:
+    # Include for loops that have simple bounds
+    simple: true
+
+    # Include range loops
+    range-loops: true
+
+    # Include for loops where we can determine size
+    for-loops: true
+
+  # -------------------------------------------------------------------------
+  # staticcheck - Static Analysis
+  # -------------------------------------------------------------------------
+  staticcheck:
+    # Check all (SA*, S*, ST*, QF*)
+    checks: ["all"]
+
+# =============================================================================
+# Issue Configuration
+# =============================================================================
+issues:
+  # Maximum issues printed per linter (0 = unlimited)
+  max-issues-per-linter: 50
+
+  # Maximum issues with the same text (0 = unlimited)
+  max-same-issues: 3
+
+  # Show only new issues from git revision
+  # This makes it easier to adopt linting incrementally on existing codebases
+  # In CI, compare against the base branch (main/master)
+  new-from-rev: ""  # Set to "main" or "origin/main" in CI for PR checks
+
+  # Fix found issues (if supported by linter)
+  fix: false
+
+  # -------------------------------------------------------------------------
+  # Exclusion Rules
+  # -------------------------------------------------------------------------
+  exclude-rules:
+    # Exclude security checks in test files
+    # Tests often have hardcoded values, test-specific patterns
+    - path: "_test\\.go$"
+      linters:
+        - gosec
+        - errcheck
+        - goconst
+
+    # Exclude test helper files
+    - path: "testhelpers?\\.go$"
+      linters:
+        - gosec
+        - errcheck
+
+    # Exclude integration tests directory entirely from security checks
+    - path: "tests/integration/"
+      linters:
+        - gosec
+
+    # Exclude load testing tools from some checks
+    - path: "tools/"
+      linters:
+        - gosec
+        - errcheck
+
+    # Allow fmt.Errorf without wrapping (common pattern)
+    - linters:
+        - govet
+      text: "fmt.Errorf.* call has possible formatting directive"
+
+    # Allow context.Background() in main functions
+    - path: "cmd/main\\.go$"
+      linters:
+        - noctx
+
+    # Allow context.Background() in test files
+    - path: "_test\\.go$"
+      linters:
+        - noctx
+
+    # Common false positive: deferred Close() error not checked
+    - linters:
+        - errcheck
+      text: "Error return value of .*(Close|Flush|Sync).* is not checked"
+
+    # Allow magic numbers in test files
+    - path: "_test\\.go$"
+      linters:
+        - goconst
+
+    # SQL construction warnings in query builders (false positives)
+    # Only exclude if you're using a safe query builder
+    - linters:
+        - gosec
+      text: "G201:"
+      source: "sqlx|squirrel"
+
+    # Exclude weak random for non-crypto uses (e.g., jitter, load balancing)
+    # Only in specific files where this is intentional
+    - path: "internal/.*provider\\.go$"
+      linters:
+        - gosec
+      text: "G404:"
+
+  # List of regexps of issue texts to exclude
+  exclude:
+    # Exclude common false positives
+    - "Error return value of `.*\\.Body\\.Close` is not checked"
+    - "should have a package comment"
+
+  # Directories to exclude
+  exclude-dirs:
+    - vendor
+    - node_modules
+    - .git
+
+  # Files to exclude (glob patterns)
+  exclude-files:
+    - ".*\\.pb\\.go$"     # Protocol buffer generated files
+    - ".*_mock\\.go$"      # Mock files (if generated)
+    - ".*_gen\\.go$"       # Other generated files
+
+# =============================================================================
+# Severity Configuration
+# =============================================================================
+severity:
+  # Default severity for issues without specific severity
+  default: warning
+
+  # Map linters to severities
+  rules:
+    - linters:
+        - gosec
+      severity: error
+    - linters:
+        - errcheck
+        - nilerr
+        - bodyclose
+        - sqlclosecheck
+      severity: error
+    - linters:
+        - govet
+        - staticcheck
+      severity: warning
+    - linters:
+        - gocyclo
+        - goconst
+        - misspell
+      severity: info

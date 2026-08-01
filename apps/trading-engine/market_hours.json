@@ -1,0 +1,27 @@
+{
+  "forex": {
+    "open": {"day": "Sunday", "time": "22:00", "timezone": "UTC"},
+    "close": {"day": "Friday", "time": "22:00", "timezone": "UTC"},
+    "holidays": ["2026-12-25", "2026-01-01"]
+  },
+  "crypto": {
+    "open": "always",
+    "close": "never",
+    "holidays": []
+  },
+  "stocks": {
+    "open": {"day": "Monday", "time": "09:30", "timezone": "America/New_York"},
+    "close": {"day": "Friday", "time": "16:00", "timezone": "America/New_York"},
+    "holidays": ["2026-01-01", "2026-01-20", "2026-02-17", "2026-04-03", "2026-05-25", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25"]
+  },
+  "commodities": {
+    "open": {"day": "Monday", "time": "00:00", "timezone": "UTC"},
+    "close": {"day": "Friday", "time": "21:00", "timezone": "UTC"},
+    "holidays": ["2026-12-25"]
+  },
+  "mixed": {
+    "open": "always",
+    "close": "never",
+    "holidays": []
+  }
+}

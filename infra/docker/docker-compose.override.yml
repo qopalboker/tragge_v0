@@ -1,0 +1,57 @@
+# =============================================================================
+# Development Overrides — Exposes all service ports to host for debugging
+# =============================================================================
+# This file is auto-loaded by `docker compose up` (no -f flags needed).
+# For production, skip this file:
+#   docker compose -f docker-compose.yml up
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Infrastructure
+  # ---------------------------------------------------------------------------
+  postgres:
+    ports:
+      - "5432:5432"
+
+  redis:
+    ports:
+      - "6379:6379"
+
+  redpanda:
+    ports:
+      - "9092:19092"   # Kafka API (external)
+      - "18081:18081"  # Schema Registry
+      - "18082:18082"  # HTTP Proxy
+      - "9644:9644"    # Admin API
+
+  # ---------------------------------------------------------------------------
+  # Backend Services
+  # ---------------------------------------------------------------------------
+  api-server:
+    ports:
+      # 8081 (user-bff) is published by the gateway on host:8081 for the
+      # admin panel split — exposing it here would collide with the gateway.
+      - "8083:8083"   # admin-bff
+      - "8086:8091"   # payment-service
+
+  trading-core:
+    ports:
+      - "8085:8082"   # trade-bff
+      - "8084:8084"   # market-ingestor
+      - "8093:8085"   # trading-engine
+
+  worker:
+    ports:
+      - "8094:8086"   # leaderboard-worker
+      - "8095:8087"   # settlement-service
+      - "8088:8088"   # contest-scheduler
+      - "8091:8089"   # free-contest-generator
+
+  # ---------------------------------------------------------------------------
+  # Frontends — no source-mount overrides in dev: `make dev-frontend` runs
+  # vite directly on 5173/5174 for HMR. The compose containers build
+  # production bundles and are only relevant when exercising the gateway
+  # path (e.g. full-stack integration tests).
+  # ---------------------------------------------------------------------------
+

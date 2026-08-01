@@ -1,0 +1,532 @@
+# Loki Log-Based Alerting Rules for tragge Trading Platform
+# Generated: January 2026
+#
+# These rules use LogQL to generate alerts based on log patterns.
+# Alerts are routed to Alertmanager for notification delivery.
+#
+# Alert Categories:
+# - Error Rate Alerts: High error log volume
+# - Security Alerts: Authentication failures, suspicious activity
+# - Trading Alerts: Order rejections, trading anomalies
+# - Service Health: Service restarts, panic detection
+# - Business Alerts: Contest issues, payment failures
+
+groups:
+  # ===========================================================================
+  # ERROR RATE ALERTS
+  # Monitor error log rates across services
+  # ===========================================================================
+  - name: error-rate-alerts
+    interval: 1m
+    rules:
+      # High Error Rate - Global
+      - alert: LogHighErrorRate
+        expr: |
+          sum(rate({level="error"} |= `` [5m])) by (service) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+        annotations:
+          summary: "High error rate in {{ $labels.service }} logs"
+          description: |
+            Service {{ $labels.service }} is logging errors at {{ $value | printf "%.2f" }} errors/sec.
+
+            This indicates systemic issues requiring investigation.
+
+            LogQL Query:
+            {service="{{ $labels.service }}", level="error"} | json
+
+            Check for common patterns:
+            - Database connection errors
+            - External API failures
+            - Validation errors
+          runbook_url: "/docs/runbook/incident-response.md#high-error-rate"
+          dashboard_url: "http://grafana:3000/explore?orgId=1&left=%5B%22now-1h%22,%22now%22,%22Loki%22,%7B%22expr%22:%22%7Bservice%3D%5C%22{{ $labels.service }}%5C%22,%20level%3D%5C%22error%5C%22%7D%22%7D%5D"
+
+      # Critical Error Spike - Sudden increase
+      - alert: LogErrorSpike
+        expr: |
+          sum(rate({level="error"} |= `` [5m])) by (service) > 2
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          source: logs
+        annotations:
+          summary: "Error spike detected in {{ $labels.service }}"
+          description: |
+            Service {{ $labels.service }} is experiencing an error spike at {{ $value | printf "%.2f" }} errors/sec.
+
+            Immediate investigation required.
+
+            Check recent deployments and infrastructure changes.
+
+      # Error Rate Per Service
+      - alert: LogServiceErrorRate
+        expr: |
+          (
+            sum(rate({level="error"} |= `` [5m])) by (service)
+            /
+            (sum(rate({} |= `` [5m])) by (service) > 0)
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+        annotations:
+          summary: "{{ $labels.service }} has >10% error logs"
+          description: |
+            Service {{ $labels.service }} has error ratio of {{ $value | humanizePercentage }}.
+
+            This is abnormally high and indicates service degradation.
+
+  # ===========================================================================
+  # SECURITY ALERTS
+  # Monitor authentication and security-related log patterns
+  # ===========================================================================
+  - name: security-alerts
+    interval: 1m
+    rules:
+      # Authentication Failures - Potential brute force
+      - alert: LogAuthFailureSpike
+        expr: |
+          sum(count_over_time({service="user_bff"} |~ `(?i)(invalid credentials|invalid password|user not found|unauthorized)` [5m])) > 50
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+          category: security
+        annotations:
+          summary: "High authentication failure rate detected"
+          description: |
+            More than 50 authentication failures in the last 5 minutes.
+            Count: {{ $value }}
+
+            This could indicate:
+            - Brute force attack
+            - Credential stuffing
+            - Client misconfiguration
+
+            LogQL Query:
+            {service="user_bff"} |~ "(?i)(invalid credentials|invalid password|user not found)"
+
+            Consider:
+            - Reviewing rate limiting effectiveness
+            - Checking for patterns in source IPs
+            - Enabling additional security measures
+          runbook_url: "/docs/runbook/incident-response.md#authentication-failures"
+
+      # Account Lockout Detection
+      - alert: LogAccountLockouts
+        expr: |
+          sum(count_over_time({service="user_bff"} |~ `(?i)(account.*(locked|blocked)|too many.*attempts|temporarily locked)` [5m])) > 10
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+          category: security
+        annotations:
+          summary: "Multiple account lockouts detected"
+          description: |
+            {{ $value }} accounts have been locked in the last 5 minutes.
+
+            This could indicate:
+            - Coordinated attack
+            - Bot activity
+            - Legitimate users locked out
+
+            Review locked accounts and consider rate limit adjustments.
+
+      # Rate Limit Exceeded
+      - alert: LogRateLimitExceeded
+        expr: |
+          sum(count_over_time({} |~ `(?i)(rate limit|too many requests|429)` [5m])) by (service) > 100
+        for: 2m
+        labels:
+          severity: info
+          team: platform
+          source: logs
+          category: security
+        annotations:
+          summary: "Rate limiting active on {{ $labels.service }}"
+          description: |
+            {{ $value }} rate limit events in the last 5 minutes on {{ $labels.service }}.
+
+            This is informational - rate limiting is working as expected.
+            Monitor for legitimate traffic being blocked.
+
+      # Suspicious JWT Activity
+      - alert: LogJWTAnomalies
+        expr: |
+          sum(count_over_time({} |~ `(?i)(jwt.*(expired|invalid|malformed)|token.*invalid|signature.*mismatch)` [5m])) by (service) > 20
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+          category: security
+        annotations:
+          summary: "JWT validation failures on {{ $labels.service }}"
+          description: |
+            {{ $value }} JWT validation failures in the last 5 minutes.
+
+            This could indicate:
+            - Token expiration issues (client not refreshing)
+            - Token tampering attempts
+            - Clock skew between services
+
+  # ===========================================================================
+  # TRADING ALERTS
+  # Monitor trading-specific log patterns
+  # ===========================================================================
+  - name: trading-alerts
+    interval: 1m
+    rules:
+      # Order Rejections
+      - alert: LogOrderRejections
+        expr: |
+          sum(count_over_time({service="trading_engine"} |~ `(?i)(order.*rejected|reject.*order|insufficient|invalid order)` [5m])) > 50
+        for: 5m
+        labels:
+          severity: warning
+          team: trading
+          source: logs
+        annotations:
+          summary: "High order rejection rate"
+          description: |
+            {{ $value }} orders rejected in the last 5 minutes.
+
+            Common rejection reasons:
+            - Insufficient balance
+            - Invalid symbol
+            - Contest not active
+            - Position limit exceeded
+
+            LogQL Query:
+            {service="trading_engine"} |~ "(?i)(order.*rejected|reject.*order)"
+
+      # Order Processing Errors
+      - alert: LogOrderProcessingErrors
+        expr: |
+          sum(count_over_time({service="trading_engine", level="error"} |~ `(?i)(order|fill|position)` [5m])) > 10
+        for: 2m
+        labels:
+          severity: critical
+          team: trading
+          source: logs
+        annotations:
+          summary: "Order processing errors detected"
+          description: |
+            {{ $value }} order processing errors in the last 5 minutes.
+
+            This is critical - orders may not be executing correctly.
+
+            Immediate investigation required.
+
+      # Market Data Issues
+      - alert: LogMarketDataIssues
+        expr: |
+          sum(count_over_time({service="market_ingestor"} |~ `(?i)(connection.*failed|reconnect|timeout|stale|no data)` [5m])) > 10
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+        annotations:
+          summary: "Market data feed issues"
+          description: |
+            {{ $value }} market data issues logged in the last 5 minutes.
+
+            This may indicate:
+            - Provider connectivity issues
+            - API rate limiting
+            - Network problems
+
+            Check market-ingestor health and provider status.
+
+      # Provider Failover Events
+      - alert: LogProviderFailover
+        expr: |
+          sum(count_over_time({service="market_ingestor"} |~ `(?i)(failover|fallback|switching.*provider)` [15m])) > 0
+        for: 0m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+        annotations:
+          summary: "Market data provider failover occurred"
+          description: |
+            Market ingestor switched to fallback provider.
+
+            Check primary provider (TwelveData) status:
+            - API key validity
+            - Rate limits
+            - Service status page
+
+  # ===========================================================================
+  # SERVICE HEALTH ALERTS
+  # Monitor service lifecycle and health patterns
+  # ===========================================================================
+  - name: service-health-alerts
+    interval: 1m
+    rules:
+      # Service Restart Detection
+      - alert: LogServiceRestart
+        expr: |
+          sum(count_over_time({} |~ `(?i)(starting|started|service started|initializing|server listening)` [5m])) by (service) > 2
+        for: 0m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+        annotations:
+          summary: "Service {{ $labels.service }} restarted multiple times"
+          description: |
+            Service {{ $labels.service }} has {{ $value }} startup messages in 5 minutes.
+
+            Multiple restarts may indicate:
+            - Crash loop
+            - OOM kills
+            - Health check failures
+            - Failed deployments
+
+            Check pod status and recent events.
+
+      # Panic Detection
+      - alert: LogPanicDetected
+        expr: |
+          sum(count_over_time({} |~ `(?i)(panic|runtime error|stack trace|goroutine)` [5m])) by (service) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: platform
+          source: logs
+        annotations:
+          summary: "Panic detected in {{ $labels.service }}"
+          description: |
+            A panic or runtime error was detected in {{ $labels.service }}.
+
+            This is critical - the service may have crashed or be in an unstable state.
+
+            LogQL Query:
+            {service="{{ $labels.service }}"} |~ "(?i)(panic|runtime error|stack trace)"
+
+            Immediate investigation required.
+
+      # Database Connection Issues
+      - alert: LogDatabaseConnectionIssues
+        expr: |
+          sum(count_over_time({} |~ `(?i)(database.*error|connection.*refused|connection.*reset|pg.*error|sql.*error)` [5m])) by (service) > 5
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          source: logs
+        annotations:
+          summary: "Database connection issues in {{ $labels.service }}"
+          description: |
+            {{ $value }} database errors in the last 5 minutes for {{ $labels.service }}.
+
+            Check:
+            - PostgreSQL health
+            - Connection pool status
+            - Network connectivity
+
+      # Redis Connection Issues
+      - alert: LogRedisConnectionIssues
+        expr: |
+          sum(count_over_time({} |~ `(?i)(redis.*error|redis.*timeout|redis.*connection|cache.*error)` [5m])) by (service) > 5
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+        annotations:
+          summary: "Redis connection issues in {{ $labels.service }}"
+          description: |
+            {{ $value }} Redis errors in the last 5 minutes for {{ $labels.service }}.
+
+            Check Redis health and connectivity.
+
+      # Kafka/Message Queue Issues
+      - alert: LogKafkaIssues
+        expr: |
+          sum(count_over_time({} |~ `(?i)(kafka.*error|consumer.*error|producer.*error|broker.*error|redpanda.*error)` [5m])) by (service) > 5
+        for: 2m
+        labels:
+          severity: critical
+          team: platform
+          source: logs
+        annotations:
+          summary: "Kafka/Redpanda issues in {{ $labels.service }}"
+          description: |
+            {{ $value }} message queue errors in the last 5 minutes for {{ $labels.service }}.
+
+            Check Redpanda cluster health and consumer lag.
+
+  # ===========================================================================
+  # BUSINESS ALERTS
+  # Monitor business-critical operations
+  # ===========================================================================
+  - name: business-alerts
+    interval: 1m
+    rules:
+      # Contest State Change Issues
+      - alert: LogContestStateChangeFailure
+        expr: |
+          sum(count_over_time({} |~ `(?i)(contest.*failed|failed.*start.*contest|contest.*error)` [10m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: platform
+          source: logs
+        annotations:
+          summary: "Contest state change failure detected"
+          description: |
+            A contest failed to change state properly.
+
+            This could affect active contests and participants.
+
+            Check admin-bff and contest management logs.
+
+      # Leaderboard Update Issues
+      - alert: LogLeaderboardIssues
+        expr: |
+          sum(count_over_time({service="leaderboard_worker"} |~ `(?i)(error|failed|unable)` [5m])) > 5
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+        annotations:
+          summary: "Leaderboard processing issues"
+          description: |
+            {{ $value }} errors in leaderboard-worker in the last 5 minutes.
+
+            Check:
+            - Redis connectivity
+            - PnL message consumption
+            - Contest status
+
+      # Payout Processing Issues
+      - alert: LogPayoutIssues
+        expr: |
+          sum(count_over_time({} |~ `(?i)(payout.*error|payout.*failed|prize.*error|prize.*failed)` [15m])) > 0
+        for: 0m
+        labels:
+          severity: critical
+          team: platform
+          source: logs
+        annotations:
+          summary: "Payout processing issues detected"
+          description: |
+            Payout or prize distribution errors detected.
+
+            This is critical - contest winners may not receive their prizes.
+
+            Immediate investigation required.
+
+      # Wallet Transaction Issues
+      - alert: LogWalletIssues
+        expr: |
+          sum(count_over_time({} |~ `(?i)(wallet.*error|balance.*error|transaction.*failed|insufficient.*balance)` [5m])) > 10
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+        annotations:
+          summary: "Wallet transaction issues"
+          description: |
+            {{ $value }} wallet-related errors in the last 5 minutes.
+
+            Check wallet service health and database connectivity.
+
+  # ===========================================================================
+  # SLOW OPERATION ALERTS
+  # Monitor for slow operations logged by services
+  # ===========================================================================
+  - name: slow-operation-alerts
+    interval: 1m
+    rules:
+      # Slow HTTP Requests
+      - alert: LogSlowRequests
+        expr: |
+          sum(count_over_time({} | json | duration > 1000ms [5m])) by (service) > 10
+        for: 5m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+        annotations:
+          summary: "Slow requests detected in {{ $labels.service }}"
+          description: |
+            {{ $value }} requests took >1s in the last 5 minutes.
+
+            Check:
+            - Database query performance
+            - External API latency
+            - Resource utilization
+
+      # Slow Database Queries
+      - alert: LogSlowQueries
+        expr: |
+          sum(count_over_time({} |~ `(?i)(slow.*query|query.*took|long.*running)` [5m])) by (service) > 5
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+        annotations:
+          summary: "Slow database queries in {{ $labels.service }}"
+          description: |
+            {{ $value }} slow query warnings in the last 5 minutes.
+
+            Review database performance and query optimization.
+
+  # ===========================================================================
+  # WEBSOCKET ALERTS
+  # Monitor WebSocket-specific patterns
+  # ===========================================================================
+  - name: websocket-alerts
+    interval: 1m
+    rules:
+      # Mass Disconnections
+      - alert: LogWebSocketMassDisconnect
+        expr: |
+          sum(count_over_time({service="trade_bff"} |~ `(?i)(disconnect|connection.*closed|client.*left)` [5m])) > 100
+        for: 1m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+        annotations:
+          summary: "Mass WebSocket disconnections detected"
+          description: |
+            {{ $value }} WebSocket disconnections in the last 5 minutes.
+
+            This could indicate:
+            - Network issues
+            - Service restart
+            - Client-side problems
+
+      # WebSocket Errors
+      - alert: LogWebSocketErrors
+        expr: |
+          sum(count_over_time({service="trade_bff", level="error"} |~ `(?i)(websocket|ws)` [5m])) > 10
+        for: 2m
+        labels:
+          severity: warning
+          team: platform
+          source: logs
+        annotations:
+          summary: "WebSocket errors detected"
+          description: |
+            {{ $value }} WebSocket errors in the last 5 minutes.
+
+            Check trade-bff logs for specific error patterns.

@@ -1,0 +1,51 @@
+# Version control
+.git
+.github
+
+# Node.js
+node_modules
+**/node_modules
+
+# Build artifacts
+**/dist
+**/build
+
+# IDE
+.vscode
+.idea
+*.swp
+*.swo
+
+# Test and tools (not needed in production images)
+tests/
+tools/
+e2e/
+**/e2e/
+docs/
+scripts/backup/
+scripts/secrets/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Development files
+*.md
+!README.md
+.env
+.env.*
+*.log
+coverage/
+*-coverage.out
+
+# Infrastructure configs (not needed in app images)
+infra/grafana/
+infra/prometheus/
+infra/loki/
+infra/tempo/
+infra/promtail/
+infra/alertmanager/
+infra/k8s/
+
+# Devcontainer
+.devcontainer/

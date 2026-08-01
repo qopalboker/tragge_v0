@@ -1,0 +1,199 @@
+# =============================================================================
+# PRODUCTION ANTI-AFFINITY PATCHES
+# =============================================================================
+# Pod anti-affinity ensures pods are distributed across different nodes
+# for high availability. If one node fails, other pods continue serving.
+#
+# Strategy:
+# - preferredDuringSchedulingIgnoredDuringExecution: Soft rule, best-effort
+# - weight: 100 (highest preference)
+# - topologyKey: kubernetes.io/hostname (spread across nodes)
+#
+# For critical services, we use requiredDuringSchedulingIgnoredDuringExecution
+# to ensure pods are NEVER scheduled on the same node.
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  # =============================================================================
+  # TRADE-BFF - CRITICAL (Required anti-affinity)
+  # =============================================================================
+  # WebSocket connections are long-lived; losing all pods disrupts all traders
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: trade-bff
+                topologyKey: kubernetes.io/hostname
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: trade-bff
+                  topologyKey: topology.kubernetes.io/zone
+    target:
+      kind: Deployment
+      name: trade-bff
+
+  # =============================================================================
+  # TRADING-ENGINE - CRITICAL (Required anti-affinity)
+  # =============================================================================
+  # Each shard handles specific Kafka partitions; spread across nodes
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: trading-engine
+                topologyKey: kubernetes.io/hostname
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: trading-engine
+                  topologyKey: topology.kubernetes.io/zone
+    target:
+      kind: StatefulSet
+      name: trading-engine
+
+  # =============================================================================
+  # GATEWAY - CRITICAL (Required anti-affinity)
+  # =============================================================================
+  # Entry point for all traffic; must be highly available
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              - labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: gateway
+                topologyKey: kubernetes.io/hostname
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: gateway
+                  topologyKey: topology.kubernetes.io/zone
+    target:
+      kind: Deployment
+      name: gateway
+
+  # =============================================================================
+  # USER-BFF - IMPORTANT (Preferred anti-affinity)
+  # =============================================================================
+  # User authentication; important but can tolerate brief disruptions
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: user-bff
+                  topologyKey: kubernetes.io/hostname
+              - weight: 50
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: user-bff
+                  topologyKey: topology.kubernetes.io/zone
+    target:
+      kind: Deployment
+      name: user-bff
+
+  # =============================================================================
+  # ADMIN-BFF - IMPORTANT (Preferred anti-affinity)
+  # =============================================================================
+  # Admin operations; lower traffic but still spread for reliability
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: admin-bff
+                  topologyKey: kubernetes.io/hostname
+    target:
+      kind: Deployment
+      name: admin-bff
+
+  # =============================================================================
+  # MARKET-INGESTOR - IMPORTANT (Preferred anti-affinity)
+  # =============================================================================
+  # Market data ingestion; spread for reliability
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: market-ingestor
+                  topologyKey: kubernetes.io/hostname
+    target:
+      kind: Deployment
+      name: market-ingestor
+
+  # =============================================================================
+  # LEADERBOARD-WORKER - STANDARD (Preferred anti-affinity)
+  # =============================================================================
+  # Leaderboard computation; can catch up from Kafka if disrupted
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: leaderboard-worker
+                  topologyKey: kubernetes.io/hostname
+    target:
+      kind: Deployment
+      name: leaderboard-worker
+
+  # =============================================================================
+  # FRONTENDS - STANDARD (Preferred anti-affinity)
+  # =============================================================================
+  # Static file servers; spread for availability
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/affinity
+        value:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                podAffinityTerm:
+                  labelSelector:
+                    matchLabels:
+                      app.kubernetes.io/name: frontend
+                  topologyKey: kubernetes.io/hostname
+    target:
+      kind: Deployment
+      name: frontend

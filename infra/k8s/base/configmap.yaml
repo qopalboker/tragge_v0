@@ -1,0 +1,111 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tragge-config
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: tragge
+    app.kubernetes.io/part-of: tragge-platform
+data:
+  # Service ports
+  USER_BFF_PORT: "8081"
+  TRADE_BFF_PORT: "8082"
+  ADMIN_BFF_PORT: "8083"
+  MARKET_INGESTOR_PORT: "8084"
+  TRADING_ENGINE_PORT: "8085"
+  LEADERBOARD_WORKER_PORT: "8086"
+  PAYMENT_SERVICE_PORT: "8091"
+
+  # Kafka/Redpanda
+  KAFKA_BROKERS: "redpanda:9092"
+
+  # Redis - supports standalone, sentinel, and cluster modes
+  # Mode: "standalone", "sentinel", or "cluster"
+  REDIS_MODE: "sentinel"
+  REDIS_ADDR: "redis-master:6379"
+  # Sentinel configuration (comma-separated list of sentinel addresses)
+  REDIS_SENTINEL_ADDRS: "redis-sentinel-0.redis-sentinel:26379,redis-sentinel-1.redis-sentinel:26379,redis-sentinel-2.redis-sentinel:26379"
+  REDIS_SENTINEL_MASTER: "mymaster"
+
+  # Trading symbols: 23 forex (incl. XAU/USD, XAG/USD) + 24 crypto
+  SYMBOLS: "EUR/USD,GBP/USD,USD/JPY,USD/CHF,AUD/USD,NZD/USD,USD/CAD,EUR/GBP,EUR/JPY,GBP/JPY,AUD/JPY,CHF/JPY,EUR/AUD,GBP/AUD,EUR/CAD,AUD/NZD,CAD/JPY,NZD/JPY,EUR/CHF,GBP/CHF,GBP/CAD,XAU/USD,XAG/USD,BTC/USD,ETH/USD,SOL/USD,DOGE/USD,XRP/USD,ADA/USD,AVAX/USD,LINK/USD,DOT/USD,POL/USD,SHIB/USD,LTC/USD,UNI/USD,ETC/USD,XLM/USD,NEAR/USD,AAVE/USD,SUI/USD,PEPE/USD,ARB/USD,OP/USD,APT/USD,INJ/USD,RENDER/USD"
+
+  # Observability
+  OTEL_EXPORTER_OTLP_ENDPOINT: "http://tempo:4317"
+  LOG_LEVEL: "info"
+
+  # Sentry error tracking
+  SENTRY_ENVIRONMENT: "production"
+
+  # Notification settings
+  RESEND_FROM_EMAIL: "noreply@tragge.com"
+  NOTIFICATION_ENABLED: "true"
+  NOTIFICATION_ASYNC: "true"
+  NOTIFICATION_EMAIL_RECIPIENTS: ""
+
+  # Payment service configuration
+  JIBIT_CALLBACK_URL: "https://tragge.com/api/payments/callback/jibit"
+  JIBIT_BASE_URL: "https://napi.jibit.ir/ppg/v3"
+  WEBHOOK_BASE_URL: "https://tragge.com/api/payments"
+  SUCCESS_REDIRECT_URL: "https://tragge.com/payment/result?status=1"
+  CANCEL_REDIRECT_URL: "https://tragge.com/payment/result?status=0"
+
+  # Payment4 Crypto Gateway
+  PAYMENT4_CALLBACK_URL: "https://tragge.com/payment/result"
+  PAYMENT4_WEBHOOK_URL: "https://tragge.com/webhooks/payment4"
+  PAYMENT4_BASE_URL: "https://api.payment4.com/api/v1"
+  PAYMENT4_SANDBOX: "false"
+
+  # ---------------------------------------------------------------------------
+  # Database Connection Pool Settings (per-service)
+  # ---------------------------------------------------------------------------
+  # These are consumed by services via DB_MAX_OPEN_CONNS / DB_MAX_IDLE_CONNS
+  # env vars and override the compiled-in defaults.  Services should connect
+  # through PgBouncer (pgbouncer:6432) in production.
+  #
+  # Connection budget for 1000 concurrent users:
+  #   Trading Engine  (4 SS)    : 4  x 25 = 100  connections
+  #   Trade-BFF       (2-10 HPA): 10 x 15 = 150  connections
+  #   Leaderboard     (1-5 HPA) : 5  x 15 =  75  connections
+  #   User-BFF        (2-4 HPA) : 4  x 15 =  60  connections
+  #   Admin-BFF       (1-2 HPA) : 2  x 10 =  20  connections
+  #   Other services            :          ~  35  connections
+  #   ------------------------------------------------
+  #   Worst-case total          :          ~ 440 client connections
+  #
+  # PgBouncer (transaction mode) multiplexes these into ~50-100 real
+  # PostgreSQL connections via default_pool_size=50, max_db_connections=100.
+  # ---------------------------------------------------------------------------
+
+  # Trading Engine — 4 StatefulSet replicas, highest DB activity
+  TRADING_ENGINE_DB_MAX_OPEN_CONNS: "25"
+  TRADING_ENGINE_DB_MAX_IDLE_CONNS: "10"
+
+  # Trade-BFF — 2-10 HPA replicas
+  TRADE_BFF_DB_MAX_OPEN_CONNS: "15"
+  TRADE_BFF_DB_MAX_IDLE_CONNS: "5"
+
+  # Leaderboard Worker — 1-5 HPA replicas
+  LEADERBOARD_DB_MAX_OPEN_CONNS: "15"
+  LEADERBOARD_DB_MAX_IDLE_CONNS: "5"
+
+  # User-BFF — 2-4 HPA replicas
+  USER_BFF_DB_MAX_OPEN_CONNS: "15"
+  USER_BFF_DB_MAX_IDLE_CONNS: "5"
+
+  # Admin-BFF — 1-2 HPA replicas (low traffic)
+  ADMIN_BFF_DB_MAX_OPEN_CONNS: "10"
+  ADMIN_BFF_DB_MAX_IDLE_CONNS: "5"
+
+  # Google OAuth configuration
+  # NOTE: This value varies per environment - override in production overlay
+  # Points to frontend callback page which handles OAuth redirect and exchanges code via API
+  GOOGLE_REDIRECT_URI: "https://tragge.com/user/auth/google/callback"
+
+  # S3 Storage configuration (non-sensitive)
+  S3_ENDPOINT: "s3.amazonaws.com"
+  S3_USE_SSL: "true"
+  S3_BUCKET: "tragge-avatars"
+  S3_REGION: "us-east-1"
+  S3_PUBLIC_URL: "https://cdn.tragge.com"
+  S3_KYC_BUCKET: "tragge-kyc"

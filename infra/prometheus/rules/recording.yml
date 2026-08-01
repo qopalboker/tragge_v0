@@ -1,0 +1,459 @@
+# Prometheus Recording Rules for tragge Trading Tournament Platform
+# Generated: January 2026
+#
+# Recording rules pre-compute frequently used queries to:
+# - Reduce query load on Prometheus
+# - Speed up dashboard rendering
+# - Enable efficient alerting on complex expressions
+#
+# Naming convention: namespace:metric_name:aggregation
+
+groups:
+  # =============================================================================
+  # HTTP REQUEST METRICS
+  # Pre-computed request rates, error rates, and latency percentiles
+  # =============================================================================
+  - name: tragge-http-recording
+    interval: 30s
+    rules:
+      # Total request rate per service (5 minute window)
+      - record: tragge:http_requests:rate5m
+        expr: |
+          sum by (service) (
+            rate(http_requests_total[5m])
+          )
+
+      # Request rate by service (using namespaced metrics)
+      - record: tragge:http_requests:rate5m_by_job
+        expr: |
+          sum by (job) (
+            rate({__name__=~".+_http_requests_total"}[5m])
+          )
+
+      # Request rate per service/method/path
+      - record: tragge:http_requests:rate5m_detailed
+        expr: |
+          sum by (service, method, path) (
+            rate(http_requests_total[5m])
+          )
+
+      # 5xx error rate per service (5 minute window)
+      - record: tragge:http_errors:rate5m
+        expr: |
+          sum by (service) (
+            rate(http_requests_total{status=~"5.."}[5m])
+          )
+
+      # Error rate by service (using namespaced metrics)
+      - record: tragge:http_errors:rate5m_by_job
+        expr: |
+          sum by (job) (
+            rate({__name__=~".+_http_requests_total", status=~"5.."}[5m])
+          )
+
+      # 4xx client error rate per service
+      - record: tragge:http_client_errors:rate5m
+        expr: |
+          sum by (service) (
+            rate(http_requests_total{status=~"4.."}[5m])
+          )
+
+      # Error percentage per service
+      - record: tragge:http_error_percentage:ratio5m
+        expr: |
+          (
+            tragge:http_errors:rate5m
+            /
+            tragge:http_requests:rate5m
+          ) * 100
+
+      # P50 latency per service
+      - record: tragge:http_latency:p50
+        expr: |
+          histogram_quantile(0.50,
+            sum by (service, le) (
+              rate(http_request_duration_seconds_bucket[5m])
+            )
+          )
+
+      # P90 latency per service
+      - record: tragge:http_latency:p90
+        expr: |
+          histogram_quantile(0.90,
+            sum by (service, le) (
+              rate(http_request_duration_seconds_bucket[5m])
+            )
+          )
+
+      # P99 latency per service
+      - record: tragge:http_latency:p99
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service, le) (
+              rate(http_request_duration_seconds_bucket[5m])
+            )
+          )
+
+      # P99 latency by job (using namespaced metrics)
+      - record: tragge:http_latency:p99_by_job
+        expr: |
+          histogram_quantile(0.99,
+            sum by (job, le) (
+              rate({__name__=~".+_http_request_duration_seconds_bucket"}[5m])
+            )
+          )
+
+      # Average latency per service
+      - record: tragge:http_latency:avg
+        expr: |
+          (
+            sum by (service) (
+              rate(http_request_duration_seconds_sum[5m])
+            )
+            /
+            sum by (service) (
+              rate(http_request_duration_seconds_count[5m])
+            )
+          )
+
+      # Request rate per status code class
+      - record: tragge:http_requests_by_status_class:rate5m
+        expr: |
+          sum by (service, status_class) (
+            label_replace(
+              rate(http_requests_total[5m]),
+              "status_class",
+              "${1}xx",
+              "status",
+              "([0-9]).*"
+            )
+          )
+
+  # =============================================================================
+  # WEBSOCKET METRICS
+  # Pre-computed WebSocket connection and message metrics
+  # =============================================================================
+  - name: tragge-websocket-recording
+    interval: 30s
+    rules:
+      # Total active WebSocket connections
+      - record: tragge:ws_connections:sum
+        expr: |
+          sum(ws_connections_active)
+
+      # WebSocket connections by service
+      - record: tragge:ws_connections:sum_by_service
+        expr: |
+          sum by (service) (
+            ws_connections_active
+          )
+
+      # WebSocket message rate (inbound)
+      - record: tragge:ws_messages_in:rate5m
+        expr: |
+          sum by (service) (
+            rate(ws_messages_total{direction="in"}[5m])
+          )
+
+      # WebSocket message rate (outbound)
+      - record: tragge:ws_messages_out:rate5m
+        expr: |
+          sum by (service) (
+            rate(ws_messages_total{direction="out"}[5m])
+          )
+
+      # WebSocket message rate (total)
+      - record: tragge:ws_messages:rate5m
+        expr: |
+          sum by (service) (
+            rate(ws_messages_total[5m])
+          )
+
+      # Connection churn rate (new connections per second)
+      - record: tragge:ws_connections:churn_rate5m
+        expr: |
+          sum by (service) (
+            rate(ws_connections_total[5m])
+          )
+
+      # WebSocket message latency P99
+      - record: tragge:ws_latency:p99
+        expr: |
+          histogram_quantile(0.99,
+            sum by (service, le) (
+              rate(ws_message_duration_seconds_bucket[5m])
+            )
+          )
+
+  # =============================================================================
+  # TRADING ENGINE METRICS
+  # Pre-computed order processing and fill metrics
+  # =============================================================================
+  - name: tragge-trading-recording
+    interval: 30s
+    rules:
+      # Order fill latency P50
+      - record: tragge:order_latency:p50
+        expr: |
+          histogram_quantile(0.50,
+            sum by (le) (
+              rate(order_fill_latency_seconds_bucket[5m])
+            )
+          )
+
+      # Order fill latency P90
+      - record: tragge:order_latency:p90
+        expr: |
+          histogram_quantile(0.90,
+            sum by (le) (
+              rate(order_fill_latency_seconds_bucket[5m])
+            )
+          )
+
+      # Order fill latency P99
+      - record: tragge:order_latency:p99
+        expr: |
+          histogram_quantile(0.99,
+            sum by (le) (
+              rate(order_fill_latency_seconds_bucket[5m])
+            )
+          )
+
+      # Order fill latency average
+      - record: tragge:order_latency:avg
+        expr: |
+          (
+            sum(rate(order_fill_latency_seconds_sum[5m]))
+            /
+            sum(rate(order_fill_latency_seconds_count[5m]))
+          )
+
+      # Orders processed per second
+      - record: tragge:orders_processed:rate5m
+        expr: |
+          sum(rate(orders_processed_total[5m]))
+
+      # Orders by type rate
+      - record: tragge:orders_by_type:rate5m
+        expr: |
+          sum by (type) (
+            rate(orders_processed_total[5m])
+          )
+
+      # Orders by side rate
+      - record: tragge:orders_by_side:rate5m
+        expr: |
+          sum by (side) (
+            rate(orders_processed_total[5m])
+          )
+
+      # Fill rate (fills per second)
+      - record: tragge:fills:rate5m
+        expr: |
+          sum(rate(fills_total[5m]))
+
+      # Price update rate per symbol
+      - record: tragge:price_updates:rate5m
+        expr: |
+          sum by (symbol) (
+            rate(price_updates_total[5m])
+          )
+
+      # Total price update rate
+      - record: tragge:price_updates:rate5m_total
+        expr: |
+          sum(rate(price_updates_total[5m]))
+
+  # =============================================================================
+  # DATABASE METRICS
+  # Pre-computed database pool and query metrics
+  # =============================================================================
+  - name: tragge-database-recording
+    interval: 30s
+    rules:
+      # Connection pool utilization per service
+      - record: tragge:db_pool_utilization:ratio
+        expr: |
+          (
+            db_pool_connections{state="in_use"}
+            /
+            (db_pool_connections{state="in_use"} + db_pool_connections{state="idle"})
+          )
+
+      # Total connections in use
+      - record: tragge:db_connections_in_use:sum
+        expr: |
+          sum(db_pool_connections{state="in_use"})
+
+      # Total connections idle
+      - record: tragge:db_connections_idle:sum
+        expr: |
+          sum(db_pool_connections{state="idle"})
+
+      # Connection pool size per service
+      - record: tragge:db_pool_size:gauge
+        expr: |
+          sum by (service) (
+            db_pool_connections{state="in_use"} + db_pool_connections{state="idle"}
+          )
+
+  # =============================================================================
+  # KAFKA METRICS
+  # Pre-computed consumer lag and throughput metrics
+  # =============================================================================
+  - name: tragge-kafka-recording
+    interval: 30s
+    rules:
+      # Consumer lag by group and topic
+      - record: tragge:kafka_consumer_lag:gauge
+        expr: |
+          sum by (group, topic) (
+            kafka_consumer_lag
+          )
+
+      # Total consumer lag across all groups
+      - record: tragge:kafka_consumer_lag:sum
+        expr: |
+          sum(kafka_consumer_lag)
+
+      # Max consumer lag per group
+      - record: tragge:kafka_consumer_lag:max_by_group
+        expr: |
+          max by (group) (
+            kafka_consumer_lag
+          )
+
+      # Message production rate per topic
+      - record: tragge:kafka_messages_produced:rate5m
+        expr: |
+          sum by (topic) (
+            rate(kafka_messages_produced_total[5m])
+          )
+
+      # Message consumption rate per group
+      - record: tragge:kafka_messages_consumed:rate5m
+        expr: |
+          sum by (group) (
+            rate(kafka_messages_consumed_total[5m])
+          )
+
+  # =============================================================================
+  # BUSINESS METRICS
+  # Pre-computed business KPIs
+  # =============================================================================
+  - name: tragge-business-recording
+    interval: 60s
+    rules:
+      # Active contests count
+      - record: tragge:active_contests:count
+        expr: |
+          count(contest_status == 1)  # assuming 1 = running
+
+      # Total active traders (WebSocket connections to trade-bff)
+      - record: tragge:active_traders:count
+        expr: |
+          sum(ws_connections_active{service="trade-bff"})
+
+      # Registration success rate
+      - record: tragge:registration_success:ratio5m
+        expr: |
+          (
+            sum(rate(http_requests_total{path="/register", status="200"}[5m]))
+            /
+            sum(rate(http_requests_total{path="/register"}[5m]))
+          )
+
+      # Login success rate
+      - record: tragge:login_success:ratio5m
+        expr: |
+          (
+            sum(rate(http_requests_total{path="/login", status="200"}[5m]))
+            /
+            sum(rate(http_requests_total{path="/login"}[5m]))
+          )
+
+      # API success rate (non-5xx)
+      - record: tragge:api_success:ratio5m
+        expr: |
+          (
+            1 - (
+              sum(rate(http_requests_total{status=~"5.."}[5m]))
+              /
+              sum(rate(http_requests_total[5m]))
+            )
+          )
+
+  # =============================================================================
+  # RESOURCE METRICS
+  # Pre-computed system resource utilization
+  # =============================================================================
+  - name: tragge-resources-recording
+    interval: 30s
+    rules:
+      # CPU usage per service (from process metrics)
+      - record: tragge:cpu_usage:rate5m
+        expr: |
+          sum by (job) (
+            rate(process_cpu_seconds_total[5m])
+          )
+
+      # Memory usage per service
+      - record: tragge:memory_usage:bytes
+        expr: |
+          sum by (job) (
+            process_resident_memory_bytes
+          )
+
+      # Goroutines per service
+      - record: tragge:goroutines:count
+        expr: |
+          sum by (job) (
+            go_goroutines
+          )
+
+      # Open file descriptors per service
+      - record: tragge:open_fds:count
+        expr: |
+          sum by (job) (
+            process_open_fds
+          )
+
+      # GC pause duration P99 (5 minute window)
+      - record: tragge:gc_pause:p99
+        expr: |
+          histogram_quantile(0.99,
+            sum by (job, le) (
+              rate(go_gc_duration_seconds_bucket[5m])
+            )
+          )
+
+  # =============================================================================
+  # SERVICE AVAILABILITY
+  # Pre-computed availability metrics
+  # =============================================================================
+  - name: tragge-availability-recording
+    interval: 60s
+    rules:
+      # Service availability (% of time up)
+      - record: tragge:service_availability:ratio1h
+        expr: |
+          avg_over_time(up[1h])
+
+      # Service availability (% of time up) per job
+      - record: tragge:service_availability:ratio24h
+        expr: |
+          avg_over_time(up[24h])
+
+      # Uptime count (number of up instances)
+      - record: tragge:instances_up:count
+        expr: |
+          sum by (job) (up)
+
+      # Error budget remaining (assuming 99.9% SLO)
+      - record: tragge:error_budget:remaining
+        expr: |
+          1 - (
+            sum(increase(http_requests_total{status=~"5.."}[30d]))
+            /
+            (sum(increase(http_requests_total[30d])) * 0.001)
+          )

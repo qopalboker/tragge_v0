@@ -1,0 +1,172 @@
+# =============================================================================
+# PRODUCTION SECURITY CONTEXT PATCHES
+# =============================================================================
+# Enhanced container-level security contexts for production:
+# - readOnlyRootFilesystem: Prevents container file modifications
+# - allowPrivilegeEscalation: false: Prevents privilege escalation attacks
+# - capabilities.drop: ALL: Removes all Linux capabilities
+# - seccompProfile: RuntimeDefault: Applies default seccomp profile
+#
+# These settings follow the principle of least privilege and meet
+# Kubernetes Pod Security Standards (Restricted profile).
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  # =============================================================================
+  # BACKEND SERVICES - Full security hardening
+  # =============================================================================
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+    target:
+      kind: Deployment
+      name: user-bff
+
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+    target:
+      kind: Deployment
+      name: trade-bff
+
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+    target:
+      kind: Deployment
+      name: admin-bff
+
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+    target:
+      kind: StatefulSet
+      name: trading-engine
+
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+    target:
+      kind: Deployment
+      name: market-ingestor
+
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+    target:
+      kind: Deployment
+      name: leaderboard-worker
+
+  # =============================================================================
+  # GATEWAY - Uses port 8080 internally (non-privileged)
+  # =============================================================================
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+    target:
+      kind: Deployment
+      name: gateway
+
+  # =============================================================================
+  # FRONTENDS - Static file servers
+  # =============================================================================
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/containers/0/securityContext
+        value:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop:
+              - ALL
+          seccompProfile:
+            type: RuntimeDefault
+    target:
+      kind: Deployment
+      name: frontend
+
+  # =============================================================================
+  # POD-LEVEL SECURITY - Add to frontend (missing in base)
+  # =============================================================================
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext
+        value:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+    target:
+      kind: Deployment
+      name: frontend
+
+  - patch: |-
+      - op: add
+        path: /spec/template/spec/securityContext
+        value:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          fsGroup: 1000
+    target:
+      kind: Deployment
+      name: gateway

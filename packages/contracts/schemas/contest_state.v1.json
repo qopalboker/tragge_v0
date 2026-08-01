@@ -1,0 +1,24 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tragge.io/schemas/contest_state.v1.json",
+  "title": "ContestState",
+  "description": "Contest state change event",
+  "type": "object",
+  "required": ["contest_id", "phase", "ts"],
+  "additionalProperties": false,
+  "properties": {
+    "contest_id": {
+      "type": "string",
+      "description": "Contest identifier"
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["UPCOMING", "LIVE", "FROZEN", "ENDED"],
+      "description": "Current contest phase"
+    },
+    "ts": {
+      "type": "integer",
+      "description": "State change timestamp in milliseconds"
+    }
+  }
+}

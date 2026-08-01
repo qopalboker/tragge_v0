@@ -1,0 +1,270 @@
+{{/* Email alert templates for Tragge Trading Platform */}}
+
+{{/* Critical email HTML template */}}
+{{ define "email.critical.html" -}}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Critical Alert - Tragge Trading Platform</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .header { background-color: #dc3545; color: white; padding: 20px; }
+    .header h1 { margin: 0; font-size: 24px; }
+    .content { padding: 20px; }
+    .alert-card { border: 1px solid #ddd; border-radius: 6px; margin-bottom: 15px; overflow: hidden; }
+    .alert-header { background-color: #f8d7da; padding: 12px 15px; border-bottom: 1px solid #ddd; }
+    .alert-header h3 { margin: 0; color: #721c24; }
+    .alert-body { padding: 15px; }
+    .label { font-weight: 600; color: #495057; }
+    .value { color: #212529; }
+    .severity-critical { color: #dc3545; font-weight: bold; }
+    .severity-warning { color: #ffc107; font-weight: bold; }
+    .link { color: #007bff; text-decoration: none; }
+    .link:hover { text-decoration: underline; }
+    .footer { background-color: #f8f9fa; padding: 15px 20px; font-size: 12px; color: #6c757d; text-align: center; }
+    .resolved { background-color: #d4edda; }
+    .resolved h3 { color: #155724; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 8px 0; vertical-align: top; }
+    td:first-child { width: 120px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>CRITICAL Alert - Immediate Action Required</h1>
+    </div>
+    <div class="content">
+      {{ range .Alerts }}
+      <div class="alert-card {{ if eq .Status "resolved" }}resolved{{ end }}">
+        <div class="alert-header {{ if eq .Status "resolved" }}resolved{{ end }}">
+          <h3>{{ if eq .Status "resolved" }}[RESOLVED]{{ end }} {{ .Labels.alertname }}</h3>
+        </div>
+        <div class="alert-body">
+          <table>
+            <tr>
+              <td class="label">Severity:</td>
+              <td class="value severity-{{ .Labels.severity }}">{{ .Labels.severity | toUpper }}</td>
+            </tr>
+            <tr>
+              <td class="label">Service:</td>
+              <td class="value">{{ if .Labels.service }}{{ .Labels.service }}{{ else }}{{ .Labels.job }}{{ end }}</td>
+            </tr>
+            <tr>
+              <td class="label">Instance:</td>
+              <td class="value">{{ .Labels.instance }}</td>
+            </tr>
+            <tr>
+              <td class="label">Status:</td>
+              <td class="value">{{ .Status }}</td>
+            </tr>
+            <tr>
+              <td class="label">Started:</td>
+              <td class="value">{{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}</td>
+            </tr>
+            {{ if .EndsAt.After .StartsAt }}
+            <tr>
+              <td class="label">Ended:</td>
+              <td class="value">{{ .EndsAt.Format "2006-01-02 15:04:05 UTC" }}</td>
+            </tr>
+            {{ end }}
+          </table>
+
+          <h4>Summary</h4>
+          <p>{{ .Annotations.summary }}</p>
+
+          {{ if .Annotations.description }}
+          <h4>Description</h4>
+          <p>{{ .Annotations.description }}</p>
+          {{ end }}
+
+          {{ if .Annotations.runbook_url }}
+          <p><strong>Runbook:</strong> <a href="{{ .Annotations.runbook_url }}" class="link">{{ .Annotations.runbook_url }}</a></p>
+          {{ end }}
+
+          {{ if .Annotations.dashboard_url }}
+          <p><strong>Dashboard:</strong> <a href="{{ .Annotations.dashboard_url }}" class="link">{{ .Annotations.dashboard_url }}</a></p>
+          {{ end }}
+        </div>
+      </div>
+      {{ end }}
+    </div>
+    <div class="footer">
+      <p>This alert was sent by Tragge Trading Platform Alertmanager</p>
+      <p>Alertmanager URL: {{ .ExternalURL }}</p>
+    </div>
+  </div>
+</body>
+</html>
+{{- end }}
+
+{{/* Info email HTML template (digest format) */}}
+{{ define "email.info.html" -}}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Alert Digest - Tragge Trading Platform</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .header { background-color: #17a2b8; color: white; padding: 20px; }
+    .header h1 { margin: 0; font-size: 24px; }
+    .content { padding: 20px; }
+    .summary { background-color: #e7f5ff; padding: 15px; border-radius: 6px; margin-bottom: 20px; }
+    .alert-list { list-style: none; padding: 0; margin: 0; }
+    .alert-item { padding: 12px 0; border-bottom: 1px solid #dee2e6; }
+    .alert-item:last-child { border-bottom: none; }
+    .alert-name { font-weight: 600; color: #212529; }
+    .alert-meta { font-size: 14px; color: #6c757d; margin-top: 4px; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; font-weight: 600; }
+    .badge-info { background-color: #cce5ff; color: #004085; }
+    .badge-warning { background-color: #fff3cd; color: #856404; }
+    .link { color: #007bff; text-decoration: none; }
+    .footer { background-color: #f8f9fa; padding: 15px 20px; font-size: 12px; color: #6c757d; text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>Alert Digest</h1>
+    </div>
+    <div class="content">
+      <div class="summary">
+        <strong>{{ len .Alerts }} alert(s)</strong> in this digest
+      </div>
+      <ul class="alert-list">
+        {{ range .Alerts }}
+        <li class="alert-item">
+          <div class="alert-name">
+            <span class="badge badge-{{ .Labels.severity }}">{{ .Labels.severity }}</span>
+            {{ .Labels.alertname }}
+          </div>
+          <div class="alert-meta">
+            Service: {{ if .Labels.service }}{{ .Labels.service }}{{ else }}{{ .Labels.job }}{{ end }} |
+            Started: {{ .StartsAt.Format "15:04 UTC" }}
+          </div>
+          <div class="alert-meta">{{ .Annotations.summary }}</div>
+          {{ if .Annotations.runbook_url }}
+          <div class="alert-meta"><a href="{{ .Annotations.runbook_url }}" class="link">View Runbook</a></div>
+          {{ end }}
+        </li>
+        {{ end }}
+      </ul>
+    </div>
+    <div class="footer">
+      <p>This digest was sent by Tragge Trading Platform Alertmanager</p>
+      <p>Alertmanager URL: {{ .ExternalURL }}</p>
+    </div>
+  </div>
+</body>
+</html>
+{{- end }}
+
+{{/* Security email HTML template */}}
+{{ define "email.security.html" -}}
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Security Alert - Tragge Trading Platform</title>
+  <style>
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background-color: #f5f5f5; }
+    .container { max-width: 600px; margin: 0 auto; background-color: #ffffff; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    .header { background-color: #6c5ce7; color: white; padding: 20px; }
+    .header h1 { margin: 0; font-size: 24px; }
+    .warning-banner { background-color: #fff3cd; border-left: 4px solid #ffc107; padding: 15px; margin: 20px; }
+    .content { padding: 20px; }
+    .alert-card { border: 1px solid #6c5ce7; border-radius: 6px; margin-bottom: 15px; overflow: hidden; }
+    .alert-header { background-color: #f0efff; padding: 12px 15px; border-bottom: 1px solid #ddd; }
+    .alert-header h3 { margin: 0; color: #5f3dc4; }
+    .alert-body { padding: 15px; }
+    .label { font-weight: 600; color: #495057; }
+    .value { color: #212529; }
+    .severity-critical { color: #dc3545; font-weight: bold; }
+    .severity-warning { color: #ffc107; font-weight: bold; }
+    .link { color: #007bff; text-decoration: none; }
+    .link:hover { text-decoration: underline; }
+    .footer { background-color: #f8f9fa; padding: 15px 20px; font-size: 12px; color: #6c757d; text-align: center; }
+    .resolved { background-color: #d4edda; border-color: #28a745; }
+    .resolved h3 { color: #155724; }
+    table { width: 100%; border-collapse: collapse; }
+    td { padding: 8px 0; vertical-align: top; }
+    td:first-child { width: 120px; }
+    .icon { font-size: 20px; margin-right: 8px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <div class="header">
+      <h1>&#128737; Security Alert</h1>
+    </div>
+    <div class="warning-banner">
+      <strong>&#9888; Potential Security Threat Detected</strong>
+      <p style="margin: 8px 0 0 0;">This alert requires immediate investigation to determine if there is malicious activity.</p>
+    </div>
+    <div class="content">
+      {{ range .Alerts }}
+      <div class="alert-card {{ if eq .Status "resolved" }}resolved{{ end }}">
+        <div class="alert-header {{ if eq .Status "resolved" }}resolved{{ end }}">
+          <h3>{{ if eq .Status "resolved" }}[RESOLVED]{{ end }} {{ .Labels.alertname }}</h3>
+        </div>
+        <div class="alert-body">
+          <table>
+            <tr>
+              <td class="label">Category:</td>
+              <td class="value">{{ if .Labels.category }}{{ .Labels.category | toUpper }}{{ else }}SECURITY{{ end }}</td>
+            </tr>
+            <tr>
+              <td class="label">Severity:</td>
+              <td class="value severity-{{ .Labels.severity }}">{{ .Labels.severity | toUpper }}</td>
+            </tr>
+            <tr>
+              <td class="label">Service:</td>
+              <td class="value">{{ if .Labels.service }}{{ .Labels.service }}{{ else }}{{ .Labels.job }}{{ end }}</td>
+            </tr>
+            <tr>
+              <td class="label">Status:</td>
+              <td class="value">{{ .Status }}</td>
+            </tr>
+            <tr>
+              <td class="label">Detected:</td>
+              <td class="value">{{ .StartsAt.Format "2006-01-02 15:04:05 UTC" }}</td>
+            </tr>
+            {{ if .EndsAt.After .StartsAt }}
+            <tr>
+              <td class="label">Ended:</td>
+              <td class="value">{{ .EndsAt.Format "2006-01-02 15:04:05 UTC" }}</td>
+            </tr>
+            {{ end }}
+          </table>
+
+          <h4>Summary</h4>
+          <p>{{ .Annotations.summary }}</p>
+
+          {{ if .Annotations.description }}
+          <h4>Details</h4>
+          <pre style="background: #f8f9fa; padding: 10px; border-radius: 4px; white-space: pre-wrap; font-size: 13px;">{{ .Annotations.description }}</pre>
+          {{ end }}
+
+          {{ if .Annotations.runbook_url }}
+          <p><strong>Runbook:</strong> <a href="{{ .Annotations.runbook_url }}" class="link">{{ .Annotations.runbook_url }}</a></p>
+          {{ end }}
+
+          {{ if .Annotations.dashboard_url }}
+          <p><strong>Dashboard:</strong> <a href="{{ .Annotations.dashboard_url }}" class="link">{{ .Annotations.dashboard_url }}</a></p>
+          {{ end }}
+        </div>
+      </div>
+      {{ end }}
+    </div>
+    <div class="footer">
+      <p>This security alert was sent by Tragge Trading Platform Alertmanager</p>
+      <p>Alertmanager URL: {{ .ExternalURL }}</p>
+    </div>
+  </div>
+</body>
+</html>
+{{- end }}

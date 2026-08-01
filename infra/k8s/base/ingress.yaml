@@ -1,0 +1,279 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tragge-ingress
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: tragge-ingress
+    app.kubernetes.io/part-of: tragge-platform
+  annotations:
+    # ==========================================================================
+    # CERT-MANAGER - Automatic TLS certificate management
+    # ==========================================================================
+    # Instructs cert-manager to use the letsencrypt-prod ClusterIssuer
+    # to provision and manage TLS certificates for this Ingress
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+    # ==========================================================================
+    # SSL/TLS CONFIGURATION
+    # ==========================================================================
+    # Force redirect from HTTP to HTTPS
+    # All HTTP requests will receive a 308 Permanent Redirect to HTTPS
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # Use HTTP/2 for better performance
+    nginx.ingress.kubernetes.io/http2-push-preload: "true"
+
+    # ==========================================================================
+    # SECURITY HEADERS
+    # ==========================================================================
+    # HTTP Strict Transport Security (HSTS)
+    # Instructs browsers to only use HTTPS for the next year (31536000 seconds)
+    # includeSubDomains: Apply to all subdomains
+    # preload: Allow inclusion in browser HSTS preload lists
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: SAMEORIGIN";
+      more_set_headers "X-XSS-Protection: 1; mode=block";
+      more_set_headers "Referrer-Policy: strict-origin-when-cross-origin";
+      more_set_headers "Permissions-Policy: geolocation=(), microphone=(), camera=()";
+
+    # ==========================================================================
+    # NGINX INGRESS CONTROLLER SETTINGS
+    # ==========================================================================
+    # Maximum request body size (10MB)
+    nginx.ingress.kubernetes.io/proxy-body-size: "10m"
+
+    # Connection timeouts
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "60"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "60"
+
+    # WebSocket support - HTTP/1.1 required for upgrade
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$remote_addr"
+
+    # ==========================================================================
+    # RATE LIMITING
+    # ==========================================================================
+    # Limit requests per second per IP address
+    nginx.ingress.kubernetes.io/limit-rps: "100"
+    # Limit concurrent connections per IP address
+    nginx.ingress.kubernetes.io/limit-connections: "50"
+spec:
+  ingressClassName: nginx
+
+  # ==========================================================================
+  # TLS CONFIGURATION
+  # ==========================================================================
+  tls:
+    - hosts:
+        - tragge.example.com        # Main domain
+        - api.tragge.example.com    # API subdomain
+        - ws.tragge.example.com     # WebSocket subdomain
+      # Secret containing the TLS certificate and private key
+      # This secret is automatically created and managed by cert-manager
+      secretName: tragge-tls-secret
+
+  # ==========================================================================
+  # ROUTING RULES
+  # ==========================================================================
+  rules:
+    # ==========================================================================
+    # MAIN DOMAIN - Frontend routes
+    # ==========================================================================
+    - host: tragge.example.com
+      http:
+        paths:
+          # Frontend (unified - serves user, trade, admin routes)
+          - path: /user
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+
+          - path: /trade
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+
+          - path: /admin
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 80
+
+    # ==========================================================================
+    # API SUBDOMAIN - Backend API routes
+    # ==========================================================================
+    - host: api.tragge.example.com
+      http:
+        paths:
+          # User API
+          - path: /user
+            pathType: Prefix
+            backend:
+              service:
+                name: user-bff
+                port:
+                  number: 8081
+
+          # Trade API
+          - path: /trade
+            pathType: Prefix
+            backend:
+              service:
+                name: trade-bff
+                port:
+                  number: 8082
+
+          # Admin API
+          - path: /admin
+            pathType: Prefix
+            backend:
+              service:
+                name: admin-bff
+                port:
+                  number: 8083
+
+    # ==========================================================================
+    # WEBSOCKET SUBDOMAIN - WebSocket connections
+    # ==========================================================================
+    - host: ws.tragge.example.com
+      http:
+        paths:
+          # WebSocket trading endpoint
+          - path: /trade
+            pathType: Prefix
+            backend:
+              service:
+                name: trade-bff
+                port:
+                  number: 8082
+---
+# =============================================================================
+# WebSocket-specific Ingress with contest-aware consistent hashing
+# =============================================================================
+# This separate Ingress handles WebSocket connections with specialized configuration:
+# - Contest-aware consistent hashing (upstream-hash-by: $arg_contest_id)
+#   so all clients for the same contest land on the same trade-bff pod
+# - Extended timeouts for long-lived connections
+# - Proper WebSocket upgrade headers
+# - TLS support with security headers
+# =============================================================================
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: tragge-websocket-ingress
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: tragge-websocket-ingress
+    app.kubernetes.io/part-of: tragge-platform
+  annotations:
+    # ==========================================================================
+    # CERT-MANAGER - Automatic TLS certificate management
+    # ==========================================================================
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+
+    # ==========================================================================
+    # SSL/TLS CONFIGURATION
+    # ==========================================================================
+    # Force redirect from HTTP to HTTPS
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+
+    # ==========================================================================
+    # CONTEST-AWARE STICKY SESSIONS - Consistent hashing by contest_id
+    # ==========================================================================
+    # All WebSocket clients connecting to the same contest are routed to the
+    # same trade-bff pod via consistent hashing on the contest_id query param.
+    #
+    # Benefits:
+    #   - Maximizes cache locality for leaderboard data and contest state
+    #   - Reduces redundant Redis queries (one pod handles all clients per contest)
+    #   - Reconnections for the same contest always land on the same pod
+    #
+    # Fallback:
+    #   - trade-bff requires contest_id (returns 400 if missing), so all
+    #     WebSocket connections will have a valid hash key
+    #   - Non-WebSocket requests (e.g., health checks) without contest_id
+    #     will hash on an empty string, which is acceptable for those paths
+    #
+    # Future (Option B): For 5000+ concurrent users, consider application-level
+    # routing where trade-bff pods register handled contests in Redis and a
+    # thin routing proxy maps contests to pods explicitly.
+    # ==========================================================================
+    nginx.ingress.kubernetes.io/upstream-hash-by: "$arg_contest_id"
+
+    # ==========================================================================
+    # WEBSOCKET TIMEOUTS
+    # ==========================================================================
+    # Long timeouts for persistent WebSocket connections (1 hour)
+    # These are critical for maintaining long-lived trading connections
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-connect-timeout: "10"
+
+    # ==========================================================================
+    # WEBSOCKET UPGRADE HEADERS + SECURITY HEADERS
+    # ==========================================================================
+    nginx.ingress.kubernetes.io/proxy-http-version: "1.1"
+    nginx.ingress.kubernetes.io/configuration-snippet: |
+      # WebSocket upgrade headers
+      proxy_set_header Upgrade $http_upgrade;
+      proxy_set_header Connection "upgrade";
+      proxy_set_header X-Real-IP $remote_addr;
+      proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+      proxy_set_header X-Forwarded-Proto $scheme;
+      proxy_set_header X-Original-Forwarded-For $http_x_forwarded_for;
+
+      # Security headers for WebSocket connections
+      more_set_headers "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload";
+      more_set_headers "X-Content-Type-Options: nosniff";
+      more_set_headers "X-Frame-Options: SAMEORIGIN";
+
+    # ==========================================================================
+    # UPSTREAM KEEPALIVE
+    # ==========================================================================
+    # Keep connections alive to backend pods for better performance
+    nginx.ingress.kubernetes.io/upstream-keepalive-connections: "100"
+    nginx.ingress.kubernetes.io/upstream-keepalive-timeout: "60"
+
+    # ==========================================================================
+    # NOTE: upstream-hash-by is set above in the contest-aware sticky sessions
+    # section. The $arg_contest_id hash key groups all clients for the same
+    # contest onto the same pod. No additional fallback annotation is needed
+    # because trade-bff enforces contest_id as a required query parameter.
+    # ==========================================================================
+spec:
+  ingressClassName: nginx
+
+  # ==========================================================================
+  # TLS CONFIGURATION
+  # ==========================================================================
+  tls:
+    - hosts:
+        - ws.tragge.example.com     # WebSocket subdomain
+      secretName: tragge-tls-secret
+
+  # ==========================================================================
+  # ROUTING RULES
+  # ==========================================================================
+  rules:
+    - host: ws.tragge.example.com
+      http:
+        paths:
+          - path: /ws
+            pathType: Prefix
+            backend:
+              service:
+                name: trade-bff
+                port:
+                  number: 8082

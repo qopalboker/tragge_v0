@@ -1,0 +1,325 @@
+# =============================================================================
+# Docker Compose Override: Redis Cluster (High Availability)
+# =============================================================================
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.redis-cluster.yml up
+#
+# This replaces the standalone Redis with a Redis Cluster setup:
+# - 6 nodes: 3 masters + 3 replicas
+# - Hash slot sharding (16384 slots)
+#
+# IMPORTANT: Run the cluster creation command after all nodes are up:
+#   docker exec tragge_redis_node_1 redis-cli --cluster create \
+#     redis-node-1:6379 redis-node-2:6379 redis-node-3:6379 \
+#     redis-node-4:6379 redis-node-5:6379 redis-node-6:6379 \
+#     --cluster-replicas 1 --cluster-yes
+# =============================================================================
+
+version: "3.8"
+
+volumes:
+  redis_node1_data:
+  redis_node2_data:
+  redis_node3_data:
+  redis_node4_data:
+  redis_node5_data:
+  redis_node6_data:
+
+services:
+  # Override the original redis service - disable it
+  redis:
+    profiles:
+      - disabled
+
+  # ==========================================================================
+  # Redis Cluster Node 1 (Master)
+  # ==========================================================================
+  redis-node-1:
+    image: redis:7-alpine
+    container_name: tragge_redis_node_1
+    restart: unless-stopped
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-ip redis-node-1
+      --cluster-announce-port 6379
+      --cluster-announce-bus-port 16379
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+      --save 900 1
+      --save 300 10
+      --save 60 10000
+    # ports exposed via docker-compose.override.yml for development
+    volumes:
+      - redis_node1_data:/data
+    networks:
+      - platform_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ==========================================================================
+  # Redis Cluster Node 2 (Master)
+  # ==========================================================================
+  redis-node-2:
+    image: redis:7-alpine
+    container_name: tragge_redis_node_2
+    restart: unless-stopped
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-ip redis-node-2
+      --cluster-announce-port 6379
+      --cluster-announce-bus-port 16379
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    # ports exposed via docker-compose.override.yml for development
+    volumes:
+      - redis_node2_data:/data
+    networks:
+      - platform_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ==========================================================================
+  # Redis Cluster Node 3 (Master)
+  # ==========================================================================
+  redis-node-3:
+    image: redis:7-alpine
+    container_name: tragge_redis_node_3
+    restart: unless-stopped
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-ip redis-node-3
+      --cluster-announce-port 6379
+      --cluster-announce-bus-port 16379
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    # ports exposed via docker-compose.override.yml for development
+    volumes:
+      - redis_node3_data:/data
+    networks:
+      - platform_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ==========================================================================
+  # Redis Cluster Node 4 (Replica)
+  # ==========================================================================
+  redis-node-4:
+    image: redis:7-alpine
+    container_name: tragge_redis_node_4
+    restart: unless-stopped
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-ip redis-node-4
+      --cluster-announce-port 6379
+      --cluster-announce-bus-port 16379
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    # ports exposed via docker-compose.override.yml for development
+    volumes:
+      - redis_node4_data:/data
+    networks:
+      - platform_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ==========================================================================
+  # Redis Cluster Node 5 (Replica)
+  # ==========================================================================
+  redis-node-5:
+    image: redis:7-alpine
+    container_name: tragge_redis_node_5
+    restart: unless-stopped
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-ip redis-node-5
+      --cluster-announce-port 6379
+      --cluster-announce-bus-port 16379
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    # ports exposed via docker-compose.override.yml for development
+    volumes:
+      - redis_node5_data:/data
+    networks:
+      - platform_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ==========================================================================
+  # Redis Cluster Node 6 (Replica)
+  # ==========================================================================
+  redis-node-6:
+    image: redis:7-alpine
+    container_name: tragge_redis_node_6
+    restart: unless-stopped
+    command: >
+      redis-server
+      --cluster-enabled yes
+      --cluster-config-file /data/nodes.conf
+      --cluster-node-timeout 5000
+      --cluster-announce-ip redis-node-6
+      --cluster-announce-port 6379
+      --cluster-announce-bus-port 16379
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    # ports exposed via docker-compose.override.yml for development
+    volumes:
+      - redis_node6_data:/data
+    networks:
+      - platform_net
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+  # ==========================================================================
+  # Redis Cluster Init - Creates the cluster
+  # ==========================================================================
+  redis-cluster-init:
+    image: redis:7-alpine
+    container_name: tragge_redis_cluster_init
+    restart: "no"
+    command: >
+      sh -c '
+        echo "Waiting for all Redis nodes to be ready..."
+        for i in 1 2 3 4 5 6; do
+          until redis-cli -h redis-node-$$i -p 6379 ping 2>/dev/null | grep -q PONG; do
+            echo "Waiting for redis-node-$$i..."
+            sleep 2
+          done
+          echo "redis-node-$$i is ready"
+        done
+
+        echo "Checking if cluster already exists..."
+        if redis-cli -h redis-node-1 -p 6379 cluster info 2>/dev/null | grep -q "cluster_state:ok"; then
+          echo "Cluster already exists and is healthy"
+          exit 0
+        fi
+
+        echo "Creating Redis Cluster..."
+        redis-cli --cluster create \
+          redis-node-1:6379 redis-node-2:6379 redis-node-3:6379 \
+          redis-node-4:6379 redis-node-5:6379 redis-node-6:6379 \
+          --cluster-replicas 1 --cluster-yes
+
+        echo "Cluster created successfully!"
+        redis-cli -h redis-node-1 cluster info
+      '
+    networks:
+      - platform_net
+    depends_on:
+      redis-node-1:
+        condition: service_healthy
+      redis-node-2:
+        condition: service_healthy
+      redis-node-3:
+        condition: service_healthy
+      redis-node-4:
+        condition: service_healthy
+      redis-node-5:
+        condition: service_healthy
+      redis-node-6:
+        condition: service_healthy
+
+  # ==========================================================================
+  # Redis Exporter for Prometheus (monitors node-1)
+  # ==========================================================================
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.55.0-alpine
+    container_name: tragge_redis_exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: redis://redis-node-1:6379
+    # ports exposed via docker-compose.override.yml for development
+    networks:
+      - platform_net
+    depends_on:
+      redis-node-1:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9121/metrics"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+
+  # ==========================================================================
+  # Service Overrides - Update Redis connection
+  # ==========================================================================
+  trade-bff:
+    environment:
+      PORT: "8082"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${POSTGRES_DB:-app}
+      POSTGRES_SSLMODE: ${POSTGRES_SSLMODE:-disable}
+      POSTGRES_USER: ${POSTGRES_USER:-app}
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_app_password
+      REDIS_CLUSTER_ADDRS: redis-node-1:6379,redis-node-2:6379,redis-node-3:6379,redis-node-4:6379,redis-node-5:6379,redis-node-6:6379
+      JWT_SECRET_FILE: /run/secrets/jwt_secret
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis-node-1:
+        condition: service_healthy
+
+  market-ingestor:
+    environment:
+      PORT: "8084"
+      REDIS_CLUSTER_ADDRS: redis-node-1:6379,redis-node-2:6379,redis-node-3:6379,redis-node-4:6379,redis-node-5:6379,redis-node-6:6379
+      KAFKA_BROKERS: redpanda:9092
+      TWELVEDATA_API_KEY: ${TWELVEDATA_API_KEY:-}
+      SYMBOLS: ${SYMBOLS:-AAPL,MSFT,GOOGL,BTC/USD,ETH/USD}
+    depends_on:
+      redis-node-1:
+        condition: service_healthy
+      redpanda:
+        condition: service_healthy

@@ -1,0 +1,132 @@
+# =============================================================================
+# Docker Compose Lite Override - Minimal Resource Configuration
+# =============================================================================
+#
+# This overlay reduces resource usage for development on resource-constrained
+# machines. Use with profiles for selective service startup:
+#
+#   make up-minimal   - Infrastructure only (~900MB RAM)
+#   make up-lite      - Core app + frontends (~2.4GB RAM, no monitoring)
+#   make up-full-lite - All services with resource limits (~3.5GB RAM)
+#
+# Resource estimates per mode:
+#   minimal:   postgres(256M) + redis(128M) + redpanda(384M) + minio(128M) ≈ 896MB
+#   lite:      minimal + 3 app services(~1280M) + shard-router(64M) + frontend(64M) + gateway(64M) ≈ 2.4GB
+#   full-lite: lite + monitoring ≈ 3.5GB
+#
+
+services:
+  # ---------------------------------------------------------------------------
+  # Infrastructure - reduced resources
+  # ---------------------------------------------------------------------------
+
+  postgres:
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.5"
+    command:
+      - postgres
+      - -c
+      - shared_buffers=64MB
+      - -c
+      - max_connections=50
+      - -c
+      - work_mem=4MB
+      - -c
+      - effective_cache_size=128MB
+
+  redis:
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.25"
+    command:
+      - /bin/sh
+      - -c
+      - redis-server --requirepass "$$(cat /run/secrets/redis_password)" --appendonly yes --appendfsync everysec --maxmemory 96mb --maxmemory-policy allkeys-lru
+
+  redpanda:
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.5"
+    command:
+      - redpanda
+      - start
+      - --kafka-addr internal://0.0.0.0:9092,external://0.0.0.0:19092
+      - --advertise-kafka-addr internal://redpanda:9092,external://localhost:9092
+      - --pandaproxy-addr internal://0.0.0.0:8082,external://0.0.0.0:18082
+      - --advertise-pandaproxy-addr internal://redpanda:8082,external://localhost:18082
+      - --schema-registry-addr internal://0.0.0.0:8081,external://0.0.0.0:18081
+      - --rpc-addr redpanda:33145
+      - --advertise-rpc-addr redpanda:33145
+      - --mode dev-container
+      - --smp 1
+      - --memory 256M
+      - --reserve-memory 0M
+      - --default-log-level=warn
+
+  # ---------------------------------------------------------------------------
+  # Consolidated app services - reduced resources & connection pools
+  # ---------------------------------------------------------------------------
+
+  # Merges: user-bff + admin-bff + payment-service
+  api-server:
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.75"
+    environment:
+      DB_MAX_OPEN_CONNS: "15"
+      DB_MAX_IDLE_CONNS: "5"
+
+  # Merges: trade-bff + trading-engine + market-ingestor
+  trading-core:
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "1.0"
+    environment:
+      DB_MAX_OPEN_CONNS: "20"
+      DB_MAX_IDLE_CONNS: "8"
+      BROADCAST_WORKERS: "2"
+      TICK_PUBLISH_WORKERS: "4"
+
+  # Merges: leaderboard-worker + settlement-service + contest-scheduler + free-contest-generator
+  worker:
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.5"
+    environment:
+      DB_MAX_OPEN_CONNS: "10"
+      DB_MAX_IDLE_CONNS: "3"
+      MAX_CONCURRENT: "3"
+
+  user-frontend:
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.1"
+
+  admin-frontend:
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.1"
+
+  gateway:
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.15"

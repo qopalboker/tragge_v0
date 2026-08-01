@@ -1,0 +1,84 @@
+# =============================================================================
+# STAGING INGRESS PATCHES
+# =============================================================================
+# Update Ingress resources to use staging domains
+#
+# Staging domains:
+# - staging.tragge.com (main frontend)
+# - api-staging.tragge.com (API endpoints)
+# - ws-staging.tragge.com (WebSocket connections)
+#
+# Production domains:
+# - tragge.io
+# - api.tragge.io
+# - ws.tragge.io
+# =============================================================================
+
+apiVersion: kustomize.config.k8s.io/v1alpha1
+kind: Component
+
+patches:
+  # =============================================================================
+  # MAIN INGRESS - Frontend Routes
+  # =============================================================================
+  - patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - staging.tragge.com
+          - api-staging.tragge.com
+          - ws-staging.tragge.com
+      - op: replace
+        path: /spec/tls/0/secretName
+        value: tragge-staging-tls-secret
+      - op: replace
+        path: /spec/rules/0/host
+        value: staging.tragge.com
+      - op: replace
+        path: /spec/rules/1/host
+        value: api-staging.tragge.com
+      - op: replace
+        path: /spec/rules/2/host
+        value: ws-staging.tragge.com
+      - op: add
+        path: /metadata/annotations/environment
+        value: staging
+    target:
+      kind: Ingress
+      name: tragge-ingress
+
+  # =============================================================================
+  # WEBSOCKET INGRESS - WebSocket Routes
+  # =============================================================================
+  - patch: |-
+      - op: replace
+        path: /spec/tls/0/hosts
+        value:
+          - ws-staging.tragge.com
+      - op: replace
+        path: /spec/tls/0/secretName
+        value: tragge-staging-tls-secret
+      - op: replace
+        path: /spec/rules/0/host
+        value: ws-staging.tragge.com
+      - op: add
+        path: /metadata/annotations/environment
+        value: staging
+    target:
+      kind: Ingress
+      name: tragge-websocket-ingress
+
+  # =============================================================================
+  # RATE LIMITING - Relaxed for Staging
+  # =============================================================================
+  # Increase rate limits for staging to allow load testing
+  - patch: |-
+      - op: replace
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1limit-rps
+        value: "200"
+      - op: replace
+        path: /metadata/annotations/nginx.ingress.kubernetes.io~1limit-connections
+        value: "100"
+    target:
+      kind: Ingress
+      name: tragge-ingress

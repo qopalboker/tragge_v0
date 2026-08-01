@@ -1,0 +1,46 @@
+go 1.24.7
+
+use (
+	./apps/admin-bff
+	// Apps - Go services
+	./apps/api-server
+	./apps/contest-scheduler
+	./apps/free-contest-generator
+	./apps/leaderboard-worker
+	./apps/market-ingestor
+	./apps/payment-service
+	./apps/settlement-service
+	./apps/shard-router
+	./apps/trade-bff
+	./apps/trading-core
+	./apps/trading-engine
+	./apps/user-bff
+	./apps/worker
+
+	// Packages - Shared Go libraries (15, down from 24)
+	./packages/audit
+	./packages/auth
+	./packages/config // + health
+	./packages/contracts
+	./packages/db
+	./packages/domain // statemachine + traggepoint
+	./packages/infra // shard + wsregistry
+	./packages/kyc
+	./packages/notification // + inapp
+	./packages/observability
+	./packages/redis
+	./packages/resilience // + circuitbreaker + ratelimit
+	./packages/scoring // + prize + prize-distribution
+	./packages/secrets
+	./packages/sms
+	./packages/storage
+	./packages/ticket
+	./packages/validation
+	./packages/wallet // + exchangerate
+
+// Scripts, tests, and tools are excluded from the workspace
+// to speed up IDE indexing and `go work sync`. They have their
+// own go.mod and work standalone:
+//   cd tools/ws-load-test && go run . -n 100 ...
+//   cd tests/integration && go test -v ./...
+)

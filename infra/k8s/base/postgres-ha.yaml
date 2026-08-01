@@ -1,0 +1,1024 @@
+# PostgreSQL High Availability with Patroni
+# 1 Primary + 2 Replicas with streaming replication
+# Uses etcd for leader election and distributed consensus
+---
+# etcd Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: etcd
+  namespace: tragge
+  labels:
+    app: etcd
+spec:
+  clusterIP: None
+  ports:
+    - port: 2379
+      name: client
+    - port: 2380
+      name: peer
+  selector:
+    app: etcd
+---
+# etcd StatefulSet for Patroni consensus
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: etcd
+  namespace: tragge
+  labels:
+    app: etcd
+spec:
+  serviceName: etcd
+  replicas: 3
+  selector:
+    matchLabels:
+      app: etcd
+  template:
+    metadata:
+      labels:
+        app: etcd
+    spec:
+      containers:
+        - name: etcd
+          image: quay.io/coreos/etcd:v3.5.12
+          ports:
+            - containerPort: 2379
+              name: client
+            - containerPort: 2380
+              name: peer
+          env:
+            - name: ETCD_NAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ETCD_DATA_DIR
+              value: /var/lib/etcd
+            - name: ETCD_INITIAL_CLUSTER_STATE
+              value: new
+            - name: ETCD_INITIAL_CLUSTER_TOKEN
+              value: tragge-etcd-cluster
+            - name: ETCD_INITIAL_CLUSTER
+              value: "etcd-0=http://etcd-0.etcd.tragge.svc.cluster.local:2380,etcd-1=http://etcd-1.etcd.tragge.svc.cluster.local:2380,etcd-2=http://etcd-2.etcd.tragge.svc.cluster.local:2380"
+            - name: ETCD_LISTEN_CLIENT_URLS
+              value: http://0.0.0.0:2379
+            - name: ETCD_LISTEN_PEER_URLS
+              value: http://0.0.0.0:2380
+            - name: ETCD_ADVERTISE_CLIENT_URLS
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: ETCD_INITIAL_ADVERTISE_PEER_URLS
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+          command:
+            - /bin/sh
+            - -c
+            - |
+              HOSTNAME=$(hostname)
+              ETCD_ADVERTISE_CLIENT_URLS="http://${HOSTNAME}.etcd.tragge.svc.cluster.local:2379"
+              ETCD_INITIAL_ADVERTISE_PEER_URLS="http://${HOSTNAME}.etcd.tragge.svc.cluster.local:2380"
+              exec etcd \
+                --name=${HOSTNAME} \
+                --data-dir=/var/lib/etcd \
+                --initial-cluster-state=new \
+                --initial-cluster-token=tragge-etcd-cluster \
+                --initial-cluster="etcd-0=http://etcd-0.etcd.tragge.svc.cluster.local:2380,etcd-1=http://etcd-1.etcd.tragge.svc.cluster.local:2380,etcd-2=http://etcd-2.etcd.tragge.svc.cluster.local:2380" \
+                --listen-client-urls=http://0.0.0.0:2379 \
+                --listen-peer-urls=http://0.0.0.0:2380 \
+                --advertise-client-urls=${ETCD_ADVERTISE_CLIENT_URLS} \
+                --initial-advertise-peer-urls=${ETCD_INITIAL_ADVERTISE_PEER_URLS}
+          volumeMounts:
+            - name: etcd-data
+              mountPath: /var/lib/etcd
+          resources:
+            requests:
+              memory: "128Mi"
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - etcdctl endpoint health
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - etcdctl endpoint health
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+  volumeClaimTemplates:
+    - metadata:
+        name: etcd-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 1Gi
+---
+# Patroni ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: patroni-config
+  namespace: tragge
+  labels:
+    app: postgres-ha
+data:
+  patroni.yml: |
+    scope: tragge-cluster
+    namespace: /service/
+    name: ${HOSTNAME}
+
+    restapi:
+      listen: 0.0.0.0:8008
+      connect_address: ${HOSTNAME}.postgres-ha.tragge.svc.cluster.local:8008
+
+    etcd3:
+      hosts:
+        - etcd-0.etcd.tragge.svc.cluster.local:2379
+        - etcd-1.etcd.tragge.svc.cluster.local:2379
+        - etcd-2.etcd.tragge.svc.cluster.local:2379
+
+    bootstrap:
+      dcs:
+        ttl: 30
+        loop_wait: 10
+        retry_timeout: 10
+        maximum_lag_on_failover: 1048576  # 1MB - prevent promoting lagged replica
+        master_start_timeout: 300
+        synchronous_mode: false
+        synchronous_mode_strict: false
+        postgresql:
+          use_pg_rewind: true
+          use_slots: true
+          parameters:
+            # Replication settings
+            wal_level: replica
+            hot_standby: "on"
+            max_wal_senders: 10
+            max_replication_slots: 10
+            wal_log_hints: "on"
+
+            # Connection settings
+            max_connections: 200
+
+            # Performance tuning
+            shared_buffers: 256MB
+            effective_cache_size: 768MB
+            work_mem: 16MB
+            maintenance_work_mem: 128MB
+
+            # WAL settings
+            wal_buffers: 16MB
+            min_wal_size: 1GB
+            max_wal_size: 4GB
+            checkpoint_completion_target: 0.9
+
+            # Replication lag monitoring
+            hot_standby_feedback: "on"
+            wal_receiver_status_interval: 2s
+
+            # Logging
+            log_destination: stderr
+            logging_collector: "off"
+            log_min_messages: warning
+            log_min_error_statement: error
+            log_line_prefix: '%t [%p]: [%l-1] user=%u,db=%d,app=%a,client=%h '
+            log_statement: ddl
+            log_replication_commands: "on"
+
+      initdb:
+        - encoding: UTF8
+        - data-checksums
+        - locale: en_US.UTF-8
+
+      pg_hba:
+        - local all all trust
+        - host all all 0.0.0.0/0 md5
+        - host replication replicator 0.0.0.0/0 md5
+
+      users:
+        admin:
+          password: ${POSTGRES_ADMIN_PASSWORD}
+          options:
+            - superuser
+            - createdb
+        app:
+          password: ${POSTGRES_APP_PASSWORD}
+          options:
+            - login
+        replicator:
+          password: ${POSTGRES_REPLICATOR_PASSWORD}
+          options:
+            - replication
+
+    postgresql:
+      listen: 0.0.0.0:5432
+      connect_address: ${HOSTNAME}.postgres-ha.tragge.svc.cluster.local:5432
+      data_dir: /var/lib/postgresql/data/pgdata
+      bin_dir: /usr/lib/postgresql/16/bin
+      authentication:
+        superuser:
+          username: admin
+          password: ${POSTGRES_ADMIN_PASSWORD}
+        replication:
+          username: replicator
+          password: ${POSTGRES_REPLICATOR_PASSWORD}
+      parameters:
+        unix_socket_directories: /var/run/postgresql
+
+    watchdog:
+      mode: off
+
+    tags:
+      nofailover: false
+      noloadbalance: false
+      clonefrom: false
+      nosync: false
+---
+# PostgreSQL ConfigMap for additional settings
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: tragge
+  labels:
+    app: postgres-ha
+data:
+  # Custom PostgreSQL configuration
+  custom.conf: |
+    # Trading platform optimizations
+
+    # Statement timeout for long queries (30 seconds)
+    statement_timeout = 30000
+
+    # Lock timeout (10 seconds)
+    lock_timeout = 10000
+
+    # Idle transaction timeout (5 minutes)
+    idle_in_transaction_session_timeout = 300000
+
+    # TCP keepalive settings
+    tcp_keepalives_idle = 60
+    tcp_keepalives_interval = 10
+    tcp_keepalives_count = 6
+
+    # Query planning
+    random_page_cost = 1.1
+    effective_io_concurrency = 200
+
+    # Autovacuum tuning for high-write tables
+    autovacuum_vacuum_scale_factor = 0.05
+    autovacuum_analyze_scale_factor = 0.025
+    autovacuum_vacuum_cost_delay = 2ms
+    autovacuum_vacuum_cost_limit = 1000
+---
+# PostgreSQL HA Service - Primary (read-write)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-primary
+  namespace: tragge
+  labels:
+    app: postgres-ha
+    role: primary
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgresql
+    - port: 8008
+      targetPort: 8008
+      name: patroni
+  selector:
+    app: postgres-ha
+    role: primary
+---
+# PostgreSQL HA Service - Replicas (read-only)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-replica
+  namespace: tragge
+  labels:
+    app: postgres-ha
+    role: replica
+spec:
+  type: ClusterIP
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgresql
+  selector:
+    app: postgres-ha
+    role: replica
+---
+# PostgreSQL HA Headless Service (for StatefulSet DNS)
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres-ha
+  namespace: tragge
+  labels:
+    app: postgres-ha
+spec:
+  clusterIP: None
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgresql
+    - port: 8008
+      targetPort: 8008
+      name: patroni
+  selector:
+    app: postgres-ha
+---
+# PostgreSQL HA StatefulSet with Patroni
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres-ha
+  namespace: tragge
+  labels:
+    app: postgres-ha
+spec:
+  serviceName: postgres-ha
+  replicas: 3
+  podManagementPolicy: Parallel
+  selector:
+    matchLabels:
+      app: postgres-ha
+  template:
+    metadata:
+      labels:
+        app: postgres-ha
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9187"
+    spec:
+      securityContext:
+        fsGroup: 999
+      initContainers:
+        - name: fix-permissions
+          image: busybox:1.36
+          command: ['sh', '-c', 'chown -R 999:999 /var/lib/postgresql/data']
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+      containers:
+        - name: postgres
+          image: ghcr.io/zalando/spilo-16:3.2-p2
+          ports:
+            - containerPort: 5432
+              name: postgresql
+            - containerPort: 8008
+              name: patroni
+          env:
+            - name: HOSTNAME
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: POD_IP
+              valueFrom:
+                fieldRef:
+                  fieldPath: status.podIP
+            - name: POSTGRES_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ha-secrets
+                  key: admin-password
+            - name: POSTGRES_APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ha-secrets
+                  key: app-password
+            - name: POSTGRES_REPLICATOR_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ha-secrets
+                  key: replicator-password
+            - name: PGPASSWORD_SUPERUSER
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ha-secrets
+                  key: admin-password
+            - name: PGPASSWORD_ADMIN
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ha-secrets
+                  key: admin-password
+            - name: PGPASSWORD_STANDBY
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ha-secrets
+                  key: replicator-password
+            - name: SCOPE
+              value: tragge-cluster
+            - name: PGROOT
+              value: /var/lib/postgresql
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+            - name: ETCD3_HOSTS
+              value: "etcd-0.etcd.tragge.svc.cluster.local:2379,etcd-1.etcd.tragge.svc.cluster.local:2379,etcd-2.etcd.tragge.svc.cluster.local:2379"
+            - name: DCS_ENABLE_KUBERNETES_API
+              value: "false"
+            - name: KUBERNETES_SCOPE_LABEL
+              value: cluster-name
+            - name: KUBERNETES_ROLE_LABEL
+              value: role
+            - name: KUBERNETES_LABELS
+              value: '{"app": "postgres-ha"}'
+            - name: SPILO_CONFIGURATION
+              value: |
+                bootstrap:
+                  dcs:
+                    postgresql:
+                      parameters:
+                        max_connections: 200
+                        shared_buffers: 256MB
+                        wal_level: replica
+                        max_wal_senders: 10
+                        max_replication_slots: 10
+                        hot_standby: "on"
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+            - name: patroni-config
+              mountPath: /etc/patroni
+            - name: postgres-config
+              mountPath: /etc/postgresql/custom.conf
+              subPath: custom.conf
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "500m"
+            limits:
+              memory: "2Gi"
+              cpu: "2000m"
+          livenessProbe:
+            httpGet:
+              path: /liveness
+              port: 8008
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          readinessProbe:
+            httpGet:
+              path: /readiness
+              port: 8008
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            timeoutSeconds: 3
+          lifecycle:
+            preStop:
+              exec:
+                command:
+                  - /bin/sh
+                  - -c
+                  - patronictl pause && sleep 10
+
+        # Postgres Exporter sidecar for metrics
+        - name: postgres-exporter
+          image: prometheuscommunity/postgres-exporter:v0.15.0
+          ports:
+            - containerPort: 9187
+              name: metrics
+          env:
+            - name: DATA_SOURCE_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ha-secrets
+                  key: exporter-dsn
+            - name: PG_EXPORTER_INCLUDE_DATABASES
+              value: "app"
+            - name: PG_EXPORTER_EXTEND_QUERY_PATH
+              value: /etc/postgres-exporter/queries.yaml
+          volumeMounts:
+            - name: exporter-queries
+              mountPath: /etc/postgres-exporter
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "100m"
+
+      volumes:
+        - name: patroni-config
+          configMap:
+            name: patroni-config
+        - name: postgres-config
+          configMap:
+            name: postgres-config
+        - name: exporter-queries
+          configMap:
+            name: postgres-exporter-queries
+
+  volumeClaimTemplates:
+    - metadata:
+        name: postgres-data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        resources:
+          requests:
+            storage: 20Gi
+---
+# PostgreSQL Exporter Custom Queries
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-exporter-queries
+  namespace: tragge
+  labels:
+    app: postgres-ha
+data:
+  queries.yaml: |
+    pg_replication:
+      query: |
+        SELECT
+          CASE WHEN pg_is_in_recovery() THEN 1 ELSE 0 END AS is_replica,
+          CASE WHEN pg_is_in_recovery() THEN
+            COALESCE(EXTRACT(EPOCH FROM (now() - pg_last_xact_replay_timestamp()))::bigint, 0)
+          ELSE 0 END AS lag_seconds,
+          CASE WHEN pg_is_in_recovery() THEN
+            COALESCE(pg_wal_lsn_diff(pg_last_wal_receive_lsn(), pg_last_wal_replay_lsn()), 0)
+          ELSE 0 END AS lag_bytes
+      master: true
+      metrics:
+        - is_replica:
+            usage: "GAUGE"
+            description: "1 if this server is a replica, 0 if primary"
+        - lag_seconds:
+            usage: "GAUGE"
+            description: "Replication lag in seconds"
+        - lag_bytes:
+            usage: "GAUGE"
+            description: "Replication lag in bytes"
+
+    pg_replication_slots:
+      query: |
+        SELECT
+          slot_name,
+          slot_type,
+          CASE WHEN active THEN 1 ELSE 0 END AS active,
+          COALESCE(pg_wal_lsn_diff(pg_current_wal_lsn(), restart_lsn), 0) AS retained_bytes
+        FROM pg_replication_slots
+      master: true
+      metrics:
+        - slot_name:
+            usage: "LABEL"
+            description: "Name of the replication slot"
+        - slot_type:
+            usage: "LABEL"
+            description: "Type of the replication slot"
+        - active:
+            usage: "GAUGE"
+            description: "1 if slot is active, 0 if not"
+        - retained_bytes:
+            usage: "GAUGE"
+            description: "Bytes retained in WAL for this slot"
+
+    pg_stat_statements:
+      query: |
+        SELECT
+          datname,
+          queryid,
+          calls,
+          total_exec_time,
+          mean_exec_time,
+          rows
+        FROM pg_stat_statements
+        JOIN pg_database ON pg_stat_statements.dbid = pg_database.oid
+        WHERE datname = 'app'
+        ORDER BY total_exec_time DESC
+        LIMIT 20
+      master: true
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Database name"
+        - queryid:
+            usage: "LABEL"
+            description: "Query ID"
+        - calls:
+            usage: "COUNTER"
+            description: "Number of times executed"
+        - total_exec_time:
+            usage: "COUNTER"
+            description: "Total execution time in ms"
+        - mean_exec_time:
+            usage: "GAUGE"
+            description: "Mean execution time in ms"
+        - rows:
+            usage: "COUNTER"
+            description: "Total rows retrieved or affected"
+
+    pg_database_size:
+      query: |
+        SELECT
+          datname,
+          pg_database_size(datname) AS size_bytes
+        FROM pg_database
+        WHERE datname NOT IN ('template0', 'template1')
+      master: true
+      metrics:
+        - datname:
+            usage: "LABEL"
+            description: "Database name"
+        - size_bytes:
+            usage: "GAUGE"
+            description: "Database size in bytes"
+
+    pg_table_size:
+      query: |
+        SELECT
+          schemaname,
+          relname,
+          pg_total_relation_size(relid) AS total_bytes,
+          pg_relation_size(relid) AS table_bytes,
+          pg_indexes_size(relid) AS index_bytes,
+          n_live_tup AS rows_estimate
+        FROM pg_stat_user_tables
+        ORDER BY pg_total_relation_size(relid) DESC
+        LIMIT 20
+      master: true
+      metrics:
+        - schemaname:
+            usage: "LABEL"
+            description: "Schema name"
+        - relname:
+            usage: "LABEL"
+            description: "Table name"
+        - total_bytes:
+            usage: "GAUGE"
+            description: "Total size including indexes"
+        - table_bytes:
+            usage: "GAUGE"
+            description: "Table size without indexes"
+        - index_bytes:
+            usage: "GAUGE"
+            description: "Index size"
+        - rows_estimate:
+            usage: "GAUGE"
+            description: "Estimated row count"
+---
+# PostgreSQL HA Secrets
+apiVersion: v1
+kind: Secret
+metadata:
+  name: postgres-ha-secrets
+  namespace: tragge
+  labels:
+    app: postgres-ha
+type: Opaque
+stringData:
+  # SECURITY: Replace ALL values below before deploying to any environment.
+  # Generate with: openssl rand -base64 32
+  admin-password: "REPLACE_WITH_STRONG_PASSWORD_minimum_32_characters"
+  app-password: "REPLACE_WITH_STRONG_PASSWORD_minimum_32_characters"
+  replicator-password: "REPLACE_WITH_STRONG_PASSWORD_minimum_32_characters"
+  exporter-dsn: "postgresql://admin:REPLACE_WITH_ADMIN_PASSWORD@localhost:5432/app?sslmode=disable"
+---
+# PgBouncer ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pgbouncer-config
+  namespace: tragge
+  labels:
+    app: pgbouncer
+data:
+  pgbouncer.ini: |
+    [databases]
+    ; Primary database (read-write)
+    app = host=postgres-primary.tragge.svc.cluster.local port=5432 dbname=app
+    app_rw = host=postgres-primary.tragge.svc.cluster.local port=5432 dbname=app
+
+    ; Replica database (read-only)
+    app_ro = host=postgres-replica.tragge.svc.cluster.local port=5432 dbname=app
+
+    [pgbouncer]
+    listen_addr = 0.0.0.0
+    listen_port = 6432
+
+    ; Authentication
+    auth_type = scram-sha-256
+    auth_file = /etc/pgbouncer/userlist.txt
+
+    ; Pool settings
+    pool_mode = transaction
+    max_client_conn = 1000
+    default_pool_size = 25
+    min_pool_size = 5
+    reserve_pool_size = 5
+    reserve_pool_timeout = 3
+
+    ; Connection limits per database
+    max_db_connections = 100
+    max_user_connections = 100
+
+    ; Timeouts
+    server_connect_timeout = 5
+    server_login_retry = 3
+    query_timeout = 30
+    query_wait_timeout = 60
+    client_idle_timeout = 300
+    server_idle_timeout = 60
+
+    ; Logging
+    log_connections = 1
+    log_disconnections = 1
+    log_pooler_errors = 1
+    stats_period = 60
+
+    ; Admin console
+    admin_users = admin
+    stats_users = admin
+
+    ; Health check
+    server_check_query = SELECT 1
+    server_check_delay = 30
+
+    ; Connection reset
+    server_reset_query = DISCARD ALL
+    server_reset_query_always = 0
+
+    ; TCP settings
+    tcp_keepalive = 1
+    tcp_keepidle = 60
+    tcp_keepintvl = 10
+    tcp_keepcnt = 6
+
+  userlist.txt: |
+    "app" "md5CHANGE_THIS_WITH_MD5_HASH"
+    "admin" "md5CHANGE_THIS_WITH_MD5_HASH"
+---
+# PgBouncer Deployment for Primary (read-write)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer-primary
+  namespace: tragge
+  labels:
+    app: pgbouncer
+    role: primary
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pgbouncer
+      role: primary
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+        role: primary
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9127"
+    spec:
+      containers:
+        - name: pgbouncer
+          image: bitnami/pgbouncer:1.22.1
+          ports:
+            - containerPort: 6432
+              name: pgbouncer
+          env:
+            - name: PGBOUNCER_DATABASE
+              value: "app"
+            - name: POSTGRESQL_HOST
+              value: "postgres-primary.tragge.svc.cluster.local"
+            - name: POSTGRESQL_PORT
+              value: "5432"
+            - name: POSTGRESQL_USERNAME
+              value: "app"
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ha-secrets
+                  key: app-password
+            - name: PGBOUNCER_PORT
+              value: "6432"
+            - name: PGBOUNCER_POOL_MODE
+              value: "transaction"
+            - name: PGBOUNCER_MAX_CLIENT_CONN
+              value: "500"
+            - name: PGBOUNCER_DEFAULT_POOL_SIZE
+              value: "25"
+          volumeMounts:
+            - name: pgbouncer-config
+              mountPath: /bitnami/pgbouncer/conf
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          livenessProbe:
+            tcpSocket:
+              port: 6432
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 6432
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+        - name: pgbouncer-exporter
+          image: prometheuscommunity/pgbouncer-exporter:v0.7.0
+          ports:
+            - containerPort: 9127
+              name: metrics
+          env:
+            - name: DATABASE_URL
+              value: "postgres://admin:REPLACE_WITH_ADMIN_PASSWORD@localhost:6432/pgbouncer?sslmode=disable"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "25m"
+            limits:
+              memory: "64Mi"
+              cpu: "50m"
+
+      volumes:
+        - name: pgbouncer-config
+          configMap:
+            name: pgbouncer-config
+---
+# PgBouncer Deployment for Replicas (read-only)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pgbouncer-replica
+  namespace: tragge
+  labels:
+    app: pgbouncer
+    role: replica
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: pgbouncer
+      role: replica
+  template:
+    metadata:
+      labels:
+        app: pgbouncer
+        role: replica
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "9127"
+    spec:
+      containers:
+        - name: pgbouncer
+          image: bitnami/pgbouncer:1.22.1
+          ports:
+            - containerPort: 6432
+              name: pgbouncer
+          env:
+            - name: PGBOUNCER_DATABASE
+              value: "app"
+            - name: POSTGRESQL_HOST
+              value: "postgres-replica.tragge.svc.cluster.local"
+            - name: POSTGRESQL_PORT
+              value: "5432"
+            - name: POSTGRESQL_USERNAME
+              value: "app"
+            - name: POSTGRESQL_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-ha-secrets
+                  key: app-password
+            - name: PGBOUNCER_PORT
+              value: "6432"
+            - name: PGBOUNCER_POOL_MODE
+              value: "transaction"
+            - name: PGBOUNCER_MAX_CLIENT_CONN
+              value: "500"
+            - name: PGBOUNCER_DEFAULT_POOL_SIZE
+              value: "25"
+          volumeMounts:
+            - name: pgbouncer-config
+              mountPath: /bitnami/pgbouncer/conf
+          resources:
+            requests:
+              memory: "64Mi"
+              cpu: "50m"
+            limits:
+              memory: "128Mi"
+              cpu: "200m"
+          livenessProbe:
+            tcpSocket:
+              port: 6432
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          readinessProbe:
+            tcpSocket:
+              port: 6432
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+        - name: pgbouncer-exporter
+          image: prometheuscommunity/pgbouncer-exporter:v0.7.0
+          ports:
+            - containerPort: 9127
+              name: metrics
+          env:
+            - name: DATABASE_URL
+              value: "postgres://admin:REPLACE_WITH_ADMIN_PASSWORD@localhost:6432/pgbouncer?sslmode=disable"
+          resources:
+            requests:
+              memory: "32Mi"
+              cpu: "25m"
+            limits:
+              memory: "64Mi"
+              cpu: "50m"
+
+      volumes:
+        - name: pgbouncer-config
+          configMap:
+            name: pgbouncer-config
+---
+# PgBouncer Service - Primary
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer-primary
+  namespace: tragge
+  labels:
+    app: pgbouncer
+    role: primary
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6432
+      targetPort: 6432
+      name: pgbouncer
+    - port: 9127
+      targetPort: 9127
+      name: metrics
+  selector:
+    app: pgbouncer
+    role: primary
+---
+# PgBouncer Service - Replica
+apiVersion: v1
+kind: Service
+metadata:
+  name: pgbouncer-replica
+  namespace: tragge
+  labels:
+    app: pgbouncer
+    role: replica
+spec:
+  type: ClusterIP
+  ports:
+    - port: 6432
+      targetPort: 6432
+      name: pgbouncer
+    - port: 9127
+      targetPort: 9127
+      name: metrics
+  selector:
+    app: pgbouncer
+    role: replica
+---
+# Pod Disruption Budget for PostgreSQL HA
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: postgres-ha-pdb
+  namespace: tragge
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: postgres-ha
+---
+# Pod Disruption Budget for etcd
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: etcd-pdb
+  namespace: tragge
+spec:
+  minAvailable: 2
+  selector:
+    matchLabels:
+      app: etcd

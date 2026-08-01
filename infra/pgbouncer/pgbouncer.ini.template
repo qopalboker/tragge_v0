@@ -1,0 +1,133 @@
+; =============================================================================
+; PgBouncer Configuration Template for Tragge Trading Platform
+; =============================================================================
+;
+; Recommended settings for 1000 concurrent users.
+;
+; Service connection budget (all services connecting through PgBouncer):
+;
+;   Service                  Replicas    MaxOpenConns/pod    Max Total
+;   -------                  --------    ----------------    ---------
+;   Trading Engine           4 (SS)      25                  100
+;   Trade-BFF                2-10 (HPA)  15                  150
+;   Leaderboard Worker       1-5  (HPA)  15                   75
+;   User-BFF                 2-4  (HPA)  15                   60
+;   Admin-BFF                1-2  (HPA)  10                   20
+;   Market Ingestor          1-2         10                   20
+;   Settlement Service       1           10                   10
+;   Tournament Scheduler     1            5                    5
+;   -------------------------------------------------------
+;   Worst-case total                                        ~440
+;
+; PgBouncer multiplexes these into far fewer server-side connections
+; via transaction pooling, so PostgreSQL only needs ~60-100 real
+; connections depending on concurrency.
+;
+; Environment variable substitution:
+;   ${PGBOUNCER_MAX_CLIENT_CONN}    -> max_client_conn    (default: 400)
+;   ${PGBOUNCER_DEFAULT_POOL_SIZE}  -> default_pool_size  (default: 50)
+;   ${PGBOUNCER_MIN_POOL_SIZE}      -> min_pool_size      (default: 10)
+;   ${PGBOUNCER_RESERVE_POOL_SIZE}  -> reserve_pool_size  (default: 10)
+;   ${PGBOUNCER_MAX_DB_CONNECTIONS} -> max_db_connections  (default: 100)
+;   ${POSTGRES_HOST}                -> PostgreSQL host     (default: postgres)
+;   ${POSTGRES_PORT}                -> PostgreSQL port     (default: 5432)
+;   ${POSTGRES_DB}                  -> database name       (default: app)
+;
+; =============================================================================
+
+[databases]
+; Database connections routed to PostgreSQL
+app = host=${POSTGRES_HOST:-postgres} port=${POSTGRES_PORT:-5432} dbname=${POSTGRES_DB:-app}
+
+; Fallback for admin console
+* = host=${POSTGRES_HOST:-postgres} port=${POSTGRES_PORT:-5432}
+
+[pgbouncer]
+
+; ---------------------------------------------------------------------------
+; Network
+; ---------------------------------------------------------------------------
+listen_addr = 0.0.0.0
+listen_port = 6432
+unix_socket_dir =
+
+; ---------------------------------------------------------------------------
+; Authentication
+; ---------------------------------------------------------------------------
+auth_type = scram-sha-256
+auth_file = /etc/pgbouncer/userlist.txt
+
+; ---------------------------------------------------------------------------
+; Pooling Mode
+; ---------------------------------------------------------------------------
+; transaction mode returns connections to the pool after each transaction,
+; enabling high connection multiplexing.  Do NOT use session mode for web
+; workloads — it defeats the purpose of PgBouncer.
+pool_mode = transaction
+
+; ---------------------------------------------------------------------------
+; Connection Limits
+; ---------------------------------------------------------------------------
+
+; Maximum client connections PgBouncer will accept.
+; Must be >= sum of all service MaxOpenConns at max HPA scale (~440).
+max_client_conn = ${PGBOUNCER_MAX_CLIENT_CONN:-400}
+
+; Server connections per user/database pool.
+; With transaction pooling a small pool handles many clients.
+; 50 keeps PostgreSQL load manageable while serving 1000 users.
+default_pool_size = ${PGBOUNCER_DEFAULT_POOL_SIZE:-50}
+
+; Minimum idle server connections to keep warm.
+min_pool_size = ${PGBOUNCER_MIN_POOL_SIZE:-10}
+
+; Extra connections available under burst load.
+reserve_pool_size = ${PGBOUNCER_RESERVE_POOL_SIZE:-10}
+
+; Seconds to wait before using reserve pool connections.
+reserve_pool_timeout = 3
+
+; Hard cap on server connections per database.
+; PostgreSQL max_connections should be this + headroom for superuser.
+max_db_connections = ${PGBOUNCER_MAX_DB_CONNECTIONS:-100}
+
+; ---------------------------------------------------------------------------
+; Timeouts
+; ---------------------------------------------------------------------------
+server_connect_timeout = 15
+server_idle_timeout = 600
+client_idle_timeout = 0
+client_login_timeout = 60
+query_timeout = 0
+query_wait_timeout = 120
+
+; ---------------------------------------------------------------------------
+; Logging
+; ---------------------------------------------------------------------------
+log_connections = 1
+log_disconnections = 1
+log_pooler_errors = 1
+verbose = 0
+stats_period = 60
+
+; ---------------------------------------------------------------------------
+; Admin
+; ---------------------------------------------------------------------------
+admin_users = postgres
+stats_users = postgres
+
+; ---------------------------------------------------------------------------
+; DNS
+; ---------------------------------------------------------------------------
+dns_max_ttl = 15
+dns_nxdomain_ttl = 15
+
+; ---------------------------------------------------------------------------
+; Performance
+; ---------------------------------------------------------------------------
+tcp_keepalive = 1
+tcp_keepidle = 60
+tcp_keepintvl = 10
+tcp_keepcnt = 5
+so_reuseport = 1
+application_name_add_host = 1

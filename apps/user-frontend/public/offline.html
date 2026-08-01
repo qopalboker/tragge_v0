@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Offline - Tragge</title>
+    <meta name="theme-color" content="#3b82f6" />
+    <link rel="icon" type="image/svg+xml" href="/user/favicon.svg" />
+    <style>
+      :root {
+        --color-bg: #0f172a;
+        --color-surface: #1e293b;
+        --color-border: #334155;
+        --color-primary: #3b82f6;
+        --color-text: #f1f5f9;
+        --color-text-muted: #94a3b8;
+      }
+
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      html {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+        background-color: var(--color-bg);
+        color: var(--color-text);
+        min-height: 100%;
+      }
+
+      body {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 1.5rem;
+        background: linear-gradient(135deg, var(--color-bg) 0%, #1e293b 100%);
+      }
+
+      .offline-container {
+        text-align: center;
+        max-width: 400px;
+        width: 100%;
+      }
+
+      .offline-icon {
+        width: 120px;
+        height: 120px;
+        margin: 0 auto 2rem;
+        opacity: 0.9;
+      }
+
+      .offline-icon svg {
+        width: 100%;
+        height: 100%;
+      }
+
+      h1 {
+        font-size: 1.75rem;
+        font-weight: 600;
+        margin-bottom: 0.75rem;
+        color: var(--color-text);
+      }
+
+      .subtitle {
+        font-size: 1rem;
+        color: var(--color-text-muted);
+        margin-bottom: 2rem;
+        line-height: 1.5;
+      }
+
+      .retry-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        padding: 0.875rem 1.5rem;
+        background: var(--color-primary);
+        color: white;
+        font-size: 1rem;
+        font-weight: 500;
+        border: none;
+        border-radius: 0.5rem;
+        cursor: pointer;
+        transition: all 0.2s ease;
+      }
+
+      .retry-btn:hover {
+        background: #2563eb;
+        transform: translateY(-1px);
+      }
+
+      .retry-btn:active {
+        transform: translateY(0);
+      }
+
+      .retry-btn svg {
+        width: 1.25rem;
+        height: 1.25rem;
+      }
+
+      .tips {
+        margin-top: 2.5rem;
+        padding: 1.25rem;
+        background: var(--color-surface);
+        border: 1px solid var(--color-border);
+        border-radius: 0.75rem;
+        text-align: left;
+      }
+
+      .tips-title {
+        font-size: 0.875rem;
+        font-weight: 600;
+        color: var(--color-text);
+        margin-bottom: 0.75rem;
+      }
+
+      .tips-list {
+        list-style: none;
+        font-size: 0.875rem;
+        color: var(--color-text-muted);
+      }
+
+      .tips-list li {
+        display: flex;
+        align-items: flex-start;
+        gap: 0.5rem;
+        margin-bottom: 0.5rem;
+      }
+
+      .tips-list li:last-child {
+        margin-bottom: 0;
+      }
+
+      .tips-list li::before {
+        content: '';
+        display: inline-block;
+        width: 6px;
+        height: 6px;
+        background: var(--color-primary);
+        border-radius: 50%;
+        margin-top: 0.5rem;
+        flex-shrink: 0;
+      }
+
+      .logo {
+        margin-top: 2.5rem;
+        opacity: 0.5;
+        font-size: 0.875rem;
+        color: var(--color-text-muted);
+      }
+
+      /* RTL support */
+      [dir="rtl"] .tips {
+        text-align: right;
+      }
+
+      [dir="rtl"] .tips-list li {
+        flex-direction: row-reverse;
+      }
+
+      /* Animation */
+      @keyframes float {
+        0%, 100% { transform: translateY(0); }
+        50% { transform: translateY(-10px); }
+      }
+
+      .offline-icon {
+        animation: float 3s ease-in-out infinite;
+      }
+
+      @keyframes pulse {
+        0%, 100% { opacity: 0.5; }
+        50% { opacity: 1; }
+      }
+
+      .connection-dot {
+        animation: pulse 2s ease-in-out infinite;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="offline-container">
+      <div class="offline-icon">
+        <svg viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <!-- Cloud with X -->
+          <path d="M95 55c0-16.569-13.431-30-30-30-13.255 0-24.512 8.59-28.45 20.5C25.045 47.285 16 57.65 16 70c0 13.807 11.193 25 25 25h49c11.046 0 20-8.954 20-20 0-10.274-7.751-18.744-17.727-19.873C93.392 52.19 95 48.282 95 44c0-5.523-4.477-10-10-10s-10 4.477-10 10" stroke="#3b82f6" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- X mark -->
+          <path d="M50 60l20 20M70 60l-20 20" stroke="#ef4444" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+          <!-- Wifi waves -->
+          <circle class="connection-dot" cx="100" cy="25" r="4" fill="#94a3b8"/>
+          <path d="M92 18c4.5-3 11.5-3 16 0" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/>
+          <path d="M88 12c7-4 19-4 24 0" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"/>
+        </svg>
+      </div>
+
+      <h1 id="title">You're offline</h1>
+      <p class="subtitle" id="subtitle">
+        It looks like you've lost your internet connection.
+        Please check your network and try again.
+      </p>
+
+      <button class="retry-btn" onclick="location.reload()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/>
+          <path d="M3 3v5h5"/>
+          <path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/>
+          <path d="M16 16h5v5"/>
+        </svg>
+        <span id="retryText">Try again</span>
+      </button>
+
+      <div class="tips">
+        <div class="tips-title" id="tipsTitle">Things to try:</div>
+        <ul class="tips-list">
+          <li id="tip1">Check if airplane mode is turned off</li>
+          <li id="tip2">Connect to Wi-Fi or mobile data</li>
+          <li id="tip3">Try moving closer to your router</li>
+          <li id="tip4">Restart your device if the problem persists</li>
+        </ul>
+      </div>
+
+      <div class="logo">Tragge</div>
+    </div>
+
+    <script>
+      // Detect RTL languages
+      const rtlLanguages = ['fa', 'ar', 'he'];
+      const userLang = navigator.language.split('-')[0];
+
+      if (rtlLanguages.includes(userLang)) {
+        document.documentElement.dir = 'rtl';
+        document.documentElement.lang = userLang;
+      }
+
+      // Translations
+      const translations = {
+        en: {
+          title: "You're offline",
+          subtitle: "It looks like you've lost your internet connection. Please check your network and try again.",
+          retry: "Try again",
+          tipsTitle: "Things to try:",
+          tip1: "Check if airplane mode is turned off",
+          tip2: "Connect to Wi-Fi or mobile data",
+          tip3: "Try moving closer to your router",
+          tip4: "Restart your device if the problem persists"
+        },
+        fa: {
+          title: "آفلاین هستید",
+          subtitle: "به نظر می‌رسد اتصال اینترنت شما قطع شده است. لطفاً شبکه خود را بررسی کرده و دوباره تلاش کنید.",
+          retry: "تلاش مجدد",
+          tipsTitle: "راه‌حل‌های پیشنهادی:",
+          tip1: "حالت هواپیما را غیرفعال کنید",
+          tip2: "به Wi-Fi یا داده تلفن همراه متصل شوید",
+          tip3: "به روتر خود نزدیک‌تر شوید",
+          tip4: "در صورت ادامه مشکل، دستگاه را ری‌استارت کنید"
+        }
+      };
+
+      // Apply translations
+      const t = translations[userLang] || translations.en;
+      document.getElementById('title').textContent = t.title;
+      document.getElementById('subtitle').textContent = t.subtitle;
+      document.getElementById('retryText').textContent = t.retry;
+      document.getElementById('tipsTitle').textContent = t.tipsTitle;
+      document.getElementById('tip1').textContent = t.tip1;
+      document.getElementById('tip2').textContent = t.tip2;
+      document.getElementById('tip3').textContent = t.tip3;
+      document.getElementById('tip4').textContent = t.tip4;
+
+      // Auto-retry when back online
+      window.addEventListener('online', () => {
+        location.reload();
+      });
+
+      // Check connection periodically
+      setInterval(() => {
+        if (navigator.onLine) {
+          location.reload();
+        }
+      }, 5000);
+    </script>
+  </body>
+</html>

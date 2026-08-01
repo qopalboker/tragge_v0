@@ -1,0 +1,371 @@
+# Horizontal Pod Autoscaler (HPA) Configurations for Tragge Trading Platform
+#
+# This file defines autoscaling policies for consolidated platform services using the
+# autoscaling/v2 API which supports multiple metrics and advanced scaling behavior.
+#
+# CONSOLIDATED SERVICES:
+# ---------------------------
+# - api-server: Combines user-bff, admin-bff, payment-service
+# - trading-core: Combines trade-bff, trading-engine, market-ingestor
+# - worker: Combines leaderboard-worker, settlement-service, contest-scheduler, free-contest-generator
+# - gateway: Unchanged (Nginx reverse proxy)
+# - frontend: Unchanged (static file serving)
+# - shard-router: Independent, no HPA (fixed replica count)
+#
+# SCALING BEHAVIOR EXPLAINED:
+# ---------------------------
+# Scale Up Policy:
+#   - stabilizationWindowSeconds: 0 - No stabilization, react immediately to load spikes
+#   - Percent policy: max 100% increase every 15s - Allows doubling capacity quickly
+#   - Pods policy: max 4 pods per 15s - Safety limit for rapid scaling
+#   This aggressive scale-up is critical for trading platforms where latency matters.
+#
+# Scale Down Policy:
+#   - stabilizationWindowSeconds: 300 - Wait 5 minutes before scaling down
+#   - Percent policy: max 10% decrease every 60s - Slow, gradual scale-down
+#   This conservative scale-down prevents thrashing during traffic fluctuations
+#   and avoids disrupting active connections (especially WebSocket sessions).
+#
+# MIN/MAX REPLICA RATIONALE:
+# ---------------------------
+# - trading-core: Highest max (10) for WebSocket and trading volume
+# - api-server: Moderate max (8) for user-facing API and payment traffic
+# - worker: Lower max (5) for background processing
+# - Frontends: Minimal resources needed for static file serving
+#
+# CUSTOM METRICS:
+# ---------------------------
+# Services use custom metrics from Prometheus Adapter.
+# These require prometheus-adapter to be deployed and configured.
+# See prometheus-adapter-config.yaml for metric mapping configuration.
+
+---
+# =============================================================================
+# API-SERVER HPA (consolidates user-bff, admin-bff, payment-service)
+# =============================================================================
+# Handles user authentication, account management, admin operations,
+# and payment processing (deposits, withdrawals, webhooks).
+# Moderate traffic with predictable patterns (login spikes at market open)
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api-server-hpa
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: api-server
+    app.kubernetes.io/component: autoscaling
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api-server
+  # Min 2: High availability for user-facing and payment-critical service
+  # Max 8: Sufficient for registration/login bursts and payment spikes
+  minReplicas: 2
+  maxReplicas: 8
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Custom metric: HTTP requests per second for traffic-based scaling
+    - type: Pods
+      pods:
+        metric:
+          name: http_requests_per_second
+        target:
+          type: AverageValue
+          averageValue: "100"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+      selectPolicy: Min
+
+---
+# =============================================================================
+# TRADING-CORE HPA (consolidates trade-bff, trading-engine, market-ingestor)
+# =============================================================================
+# Most critical service - handles WebSocket connections, order processing,
+# market data ingestion, and real-time trading.
+# High min replicas ensure zero-downtime during traffic spikes.
+# Memory metric added because WebSocket connections are memory-intensive.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: trading-core-hpa
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: trading-core
+    app.kubernetes.io/component: autoscaling
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: trading-core
+  # Min 2: Ensures high availability with at least 2 pods for failover
+  # Max 10: Handles large trading volumes during peak market hours
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    # CPU: Primary scaling trigger for order processing and REST API requests
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Memory: Secondary trigger for WebSocket connection accumulation
+    # WebSocket connections hold state and consume memory over time
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80
+    # Custom metric: Scale based on active WebSocket connections
+    # This is the most important scaling signal for the trading-core.
+    # With 1000 users across 2 pods = 500/pod, which would only trigger
+    # scale-up reactively. Target 400 provides headroom so the HPA scales
+    # to 3 pods proactively (1000/400 = 2.5, rounds up to 3).
+    - type: Pods
+      pods:
+        metric:
+          name: websocket_connections_active
+        target:
+          type: AverageValue
+          averageValue: "400"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+      selectPolicy: Min
+
+# =============================================================================
+# TRADING-CORE ENGINE COMPONENT - SHARDING NOTE
+# =============================================================================
+# The trading-core's engine component uses sharded Kafka consumption.
+# If deployed as a StatefulSet with fixed shard count, HPA is not compatible
+# with the sharded architecture because:
+# - Each pod handles specific Kafka partitions based on its ordinal index
+# - Scaling would break partition assignment and cause message reprocessing
+# - Shard count must match Kafka consumer group configuration
+#
+# When running as a consolidated trading-core Deployment, the engine's
+# sharded consumption is managed internally. The HPA above scales the
+# trading-core as a whole based on WebSocket and CPU metrics.
+#
+# To adjust shard count independently:
+# 1. Update shard-config ConfigMap (SHARD_COUNT)
+# 2. Optionally increase Kafka topic partitions
+# 3. Coordinate with Kafka consumer group rebalancing
+
+---
+# =============================================================================
+# WORKER HPA (consolidates leaderboard-worker, settlement-service,
+#              contest-scheduler, free-contest-generator)
+# =============================================================================
+# Handles leaderboard computation, contest settlement, prize distribution,
+# contest lifecycle scheduling, and free contest generation.
+# Bursty load during contest updates and finalization.
+#
+# LOAD PROFILE:
+# - ~33 PnL deltas/sec from trading-engine during active contests
+# - 2-3 replicas sufficient for this throughput
+# - Worker is I/O bound (Redis sorted sets + DB snapshots), not CPU bound
+# - CPU-based scaling alone is insufficient; Kafka consumer lag is the
+#   primary indicator of whether workers are keeping up with events
+#
+# NOTE: Settlement logic uses advisory locks for idempotency to prevent
+# double-settlement when multiple worker replicas process contest events.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: worker-hpa
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: worker
+    app.kubernetes.io/component: autoscaling
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: worker
+  # Min 2: High availability - ensures failover during pod restarts or node issues
+  # Max 5: Sufficient for multiple concurrent contest updates and finalization bursts
+  minReplicas: 2
+  maxReplicas: 5
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Custom metric: Kafka consumer lag for pnl.v1 and contests.v1 topics
+    # This is the primary scaling signal - if lag grows, workers can't keep up
+    # with PnL deltas and leaderboard/settlement updates will fall behind
+    - type: Pods
+      pods:
+        metric:
+          name: kafka_consumer_lag
+        target:
+          type: AverageValue
+          averageValue: "1000"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 4
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+      selectPolicy: Min
+
+---
+# =============================================================================
+# GATEWAY (NGINX) HPA
+# =============================================================================
+# Stateless reverse proxy - scales easily with traffic
+# Critical entry point for all platform traffic
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: gateway-hpa
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: gateway
+    app.kubernetes.io/component: autoscaling
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: gateway
+  # Min 2: High availability for entry point
+  # Max 6: Nginx is efficient, rarely needs many replicas
+  minReplicas: 2
+  maxReplicas: 6
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    # Custom metric: Active connections
+    - type: Pods
+      pods:
+        metric:
+          name: nginx_connections_active
+        target:
+          type: AverageValue
+          averageValue: "1000"
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 2
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+      selectPolicy: Min
+
+---
+# =============================================================================
+# FRONTEND HPA (unified)
+# =============================================================================
+# Static file serving - minimal resources needed
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: frontend-hpa
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: frontend
+    app.kubernetes.io/component: autoscaling
+    app.kubernetes.io/part-of: tragge-platform
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: frontend
+  # Min 1: Static files are cacheable, minimal resources
+  # Max 3: CDN should handle most traffic in production
+  minReplicas: 1
+  maxReplicas: 3
+  metrics:
+    # Higher threshold (80%) - static files are low cost
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 80
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100
+          periodSeconds: 15
+        - type: Pods
+          value: 2
+          periodSeconds: 15
+      selectPolicy: Max
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+        - type: Percent
+          value: 10
+          periodSeconds: 60
+      selectPolicy: Min

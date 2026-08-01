@@ -1,0 +1,216 @@
+# Alertmanager Configuration for Tragge Trading Platform
+# Generated: January 2026
+#
+# Alert Routing:
+#   - Critical alerts → default receiver (immediate)
+#   - Warning alerts → default receiver (batched 5 min)
+#   - Info alerts → default receiver (batched 30 min)
+#
+# NOTE: Alertmanager does NOT support environment variable substitution
+# in its config file. Before deployment, replace ALL placeholder values
+# prefixed with "CHANGE_ME_" with actual credentials:
+#
+#   CHANGE_ME_DISCORD_WEBHOOK_URL  -> Discord webhook URL for alert channel
+#   CHANGE_ME_RESEND_API_KEY       -> Resend API key for email delivery (global SMTP password)
+#   CHANGE_ME_ONCALL_EMAIL         -> On-call team email for critical alerts
+#   CHANGE_ME_SECURITY_EMAIL       -> Security team email for security alerts
+#
+# Alternative: Use envsubst in a container entrypoint/init-container to
+# substitute environment variables at runtime.
+
+global:
+  # Resolve timeout
+  resolve_timeout: 5m
+
+  # Global SMTP settings (via Resend SMTP relay)
+  # Replace CHANGE_ME_RESEND_API_KEY with real Resend API key before deployment
+  smtp_smarthost: 'smtp.resend.com:587'
+  smtp_from: 'alerts@tragge.app'
+  smtp_auth_username: 'resend'
+  smtp_auth_password: 'CHANGE_ME_RESEND_API_KEY'
+  smtp_require_tls: true
+
+# Templates for notification formatting
+templates:
+  - '/etc/alertmanager/templates/*.tmpl'
+
+# Inhibition rules to suppress lower severity alerts when higher severity fires
+inhibit_rules:
+  # If a critical alert is firing, suppress warnings for the same alertname
+  - source_matchers:
+      - severity = critical
+    target_matchers:
+      - severity = warning
+    equal:
+      - alertname
+      - service
+      - job
+
+  # If ServiceDown is firing, suppress all other alerts for that service
+  - source_matchers:
+      - alertname = ServiceDown
+    target_matchers:
+      - severity =~ warning|info
+    equal:
+      - job
+
+# Main routing configuration
+route:
+  # Default receiver for unmatched alerts
+  receiver: 'default-receiver'
+
+  # Group alerts by service and alertname for better context
+  group_by: ['alertname', 'service', 'job', 'severity']
+
+  # Wait time before sending first notification for a new group
+  group_wait: 30s
+
+  # Wait time before sending notifications about new alerts in an existing group
+  group_interval: 5m
+
+  # Minimum time between repeated notifications for the same alert
+  repeat_interval: 4h
+
+  # Child routes for different alert severities and types
+  routes:
+    # Critical alerts: Immediate notification
+    - matchers:
+        - severity = critical
+      receiver: 'critical-alerts'
+      group_wait: 10s
+      group_interval: 1m
+      repeat_interval: 1h
+      continue: false
+
+    # Warning alerts: Batched notifications
+    - matchers:
+        - severity = warning
+      receiver: 'warning-alerts'
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      continue: false
+
+    # Info alerts: Digest
+    - matchers:
+        - severity = info
+      receiver: 'info-alerts'
+      group_wait: 5m
+      group_interval: 30m
+      repeat_interval: 12h
+      continue: false
+
+    # Trading-specific alerts
+    - matchers:
+        - team = trading
+      receiver: 'trading-alerts'
+      group_wait: 10s
+      group_interval: 2m
+      repeat_interval: 2h
+      continue: true
+
+    # Infrastructure alerts: Platform team
+    - matchers:
+        - team = platform
+      receiver: 'platform-alerts'
+      continue: true
+
+    # Log-based alerts from Loki ruler
+    - matchers:
+        - source = logs
+      receiver: 'log-alerts'
+      group_by: ['alertname', 'service']
+      group_wait: 30s
+      group_interval: 5m
+      repeat_interval: 4h
+      continue: true
+
+    # Security alerts (authentication, rate limiting, etc.)
+    - matchers:
+        - category = security
+      receiver: 'security-alerts'
+      group_wait: 10s
+      group_interval: 2m
+      repeat_interval: 1h
+      continue: false
+
+# Receiver configurations
+# Each receiver uses Discord and/or Email notification targets with
+# severity-specific templates. Replace CHANGE_ME_* placeholders before deployment.
+
+receivers:
+  # Default fallback receiver
+  - name: 'default-receiver'
+    discord_configs:
+      - webhook_url: 'https://discord.com/api/webhooks/placeholder/placeholder'
+        title: '{{ template "discord.default.title" . }}'
+        message: '{{ template "discord.default.message" . }}'
+        send_resolved: true
+
+  # Critical alerts receiver (Discord + Email)
+  - name: 'critical-alerts'
+    discord_configs:
+      - webhook_url: 'https://discord.com/api/webhooks/placeholder/placeholder'
+        title: '{{ template "discord.critical.title" . }}'
+        message: '{{ template "discord.critical.message" . }}'
+        send_resolved: true
+    email_configs:
+      - to: 'CHANGE_ME_ONCALL_EMAIL'
+        headers:
+          Subject: '[CRITICAL] Tragge Alert: {{ .GroupLabels.alertname }}'
+        html: '{{ template "email.critical.html" . }}'
+        send_resolved: true
+
+  # Warning alerts receiver
+  - name: 'warning-alerts'
+    discord_configs:
+      - webhook_url: 'https://discord.com/api/webhooks/placeholder/placeholder'
+        title: '{{ template "discord.warning.title" . }}'
+        message: '{{ template "discord.warning.message" . }}'
+        send_resolved: true
+
+  # Info alerts receiver
+  - name: 'info-alerts'
+    discord_configs:
+      - webhook_url: 'https://discord.com/api/webhooks/placeholder/placeholder'
+        title: '{{ template "discord.default.title" . }}'
+        message: '{{ template "discord.default.message" . }}'
+        send_resolved: false
+
+  # Trading-specific alerts receiver
+  - name: 'trading-alerts'
+    discord_configs:
+      - webhook_url: 'https://discord.com/api/webhooks/placeholder/placeholder'
+        title: '{{ template "discord.trading.title" . }}'
+        message: '{{ template "discord.trading.message" . }}'
+        send_resolved: true
+
+  # Platform infrastructure alerts receiver
+  - name: 'platform-alerts'
+    discord_configs:
+      - webhook_url: 'https://discord.com/api/webhooks/placeholder/placeholder'
+        title: '{{ template "discord.platform.title" . }}'
+        message: '{{ template "discord.platform.message" . }}'
+        send_resolved: true
+
+  # Log-based alerts receiver
+  - name: 'log-alerts'
+    discord_configs:
+      - webhook_url: 'https://discord.com/api/webhooks/placeholder/placeholder'
+        title: '{{ template "discord.logs.title" . }}'
+        message: '{{ template "discord.logs.message" . }}'
+        send_resolved: true
+
+  # Security alerts receiver (Discord + Email)
+  - name: 'security-alerts'
+    discord_configs:
+      - webhook_url: 'https://discord.com/api/webhooks/placeholder/placeholder'
+        title: '{{ template "discord.security.title" . }}'
+        message: '{{ template "discord.security.message" . }}'
+        send_resolved: true
+    email_configs:
+      - to: 'CHANGE_ME_SECURITY_EMAIL'
+        headers:
+          Subject: '[SECURITY] Tragge Alert: {{ .GroupLabels.alertname }}'
+        html: '{{ template "email.security.html" . }}'
+        send_resolved: true

@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deposit Confirmed</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #333; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f5f5f5;">
+    <div style="background-color: #ffffff; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); overflow: hidden;">
+        <!-- Header -->
+        <div style="background-color: #16a34a; padding: 30px; text-align: center;">
+            <div style="font-size: 48px; margin-bottom: 10px;">&#9989;</div>
+            <h1 style="color: #ffffff; margin: 0; font-size: 24px;">Deposit Confirmed!</h1>
+        </div>
+
+        <!-- Content -->
+        <div style="padding: 30px;">
+            <p style="color: #333; margin-top: 0;">Hello{{if .UserName}} {{.UserName}}{{end}},</p>
+
+            <p style="color: #333;">Great news! Your deposit has been <strong style="color: #16a34a;">successfully confirmed</strong> and your wallet has been credited.</p>
+
+            <!-- Deposit Details -->
+            <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 8px; padding: 20px; margin: 20px 0;">
+                <h3 style="margin: 0 0 15px 0; color: #166534; font-size: 16px;">Deposit Details</h3>
+
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; border-bottom: 1px solid #dcfce7;">Amount Deposited</td>
+                        <td style="padding: 8px 0; color: #166534; font-weight: bold; text-align: right; border-bottom: 1px solid #dcfce7;">{{.Amount}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; border-bottom: 1px solid #dcfce7;">New Balance</td>
+                        <td style="padding: 8px 0; color: #333; font-weight: bold; text-align: right; border-bottom: 1px solid #dcfce7;">{{.NewBalance}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666; border-bottom: 1px solid #dcfce7;">Date</td>
+                        <td style="padding: 8px 0; color: #333; text-align: right; border-bottom: 1px solid #dcfce7;">{{.Date}}</td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 8px 0; color: #666;">Transaction ID</td>
+                        <td style="padding: 8px 0; color: #333; text-align: right; font-family: monospace; font-size: 12px;">{{.TransactionID}}</td>
+                    </tr>
+                </table>
+            </div>
+
+            <p style="color: #333;">Your funds are now available in your wallet. You can start trading in contests or make withdrawals at any time.</p>
+
+            <div style="text-align: center; margin: 30px 0;">
+                <a href="{{.WalletURL}}" style="display: inline-block; background-color: #16a34a; color: #ffffff; text-decoration: none; padding: 12px 30px; border-radius: 6px; font-weight: 500;">View Wallet</a>
+            </div>
+
+            <p style="color: #333; margin-bottom: 0;">Thank you for using Tragge!</p>
+        </div>
+
+        <!-- Footer -->
+        <div style="background-color: #f8f9fa; padding: 20px 30px; text-align: center; border-top: 1px solid #e9ecef;">
+            <p style="color: #999; font-size: 12px; margin: 0 0 10px 0;">
+                This email was sent by <strong>Tragge</strong> to confirm your deposit.
+            </p>
+            <p style="color: #999; font-size: 12px; margin: 0;">
+                If you did not make this deposit, please contact our support team immediately.
+            </p>
+        </div>
+    </div>
+</body>
+</html>

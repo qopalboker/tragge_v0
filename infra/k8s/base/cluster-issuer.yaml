@@ -1,0 +1,102 @@
+# =============================================================================
+# Let's Encrypt ClusterIssuers for TLS Certificate Management
+# =============================================================================
+# This file defines two ClusterIssuers for cert-manager:
+# 1. letsencrypt-staging: For testing certificate issuance (RECOMMENDED for initial setup)
+# 2. letsencrypt-prod: For production certificates
+#
+# IMPORTANT: Let's Encrypt has rate limits:
+#   - Production: 50 certificates per registered domain per week
+#   - Staging: Much higher limits, certificates are not trusted by browsers
+#
+# Workflow:
+#   1. Test with letsencrypt-staging first
+#   2. Verify certificate is issued successfully
+#   3. Switch to letsencrypt-prod for trusted certificates
+#
+# Verification:
+#   kubectl get clusterissuer
+#   kubectl describe clusterissuer letsencrypt-prod
+# =============================================================================
+
+---
+# =============================================================================
+# STAGING ISSUER - Use this for testing
+# =============================================================================
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-staging
+  labels:
+    app.kubernetes.io/name: letsencrypt-staging
+    app.kubernetes.io/part-of: tragge-platform
+    app.kubernetes.io/component: certificate-management
+spec:
+  acme:
+    # Let's Encrypt ACME staging server
+    # Staging certificates are NOT trusted by browsers but have higher rate limits
+    server: https://acme-staging-v02.api.letsencrypt.org/directory
+
+    # Email for certificate expiry notifications
+    # IMPORTANT: Replace with your actual email address
+    email: admin@tragge.example.com
+
+    # Secret to store the ACME account private key
+    privateKeySecretRef:
+      name: letsencrypt-staging-account-key
+
+    # HTTP-01 challenge solver configuration
+    # This proves domain ownership by serving a file at http://<domain>/.well-known/acme-challenge/<token>
+    solvers:
+      - http01:
+          ingress:
+            # Use nginx ingress class for challenge solving
+            ingressClassName: nginx
+            # Add pod template for challenge solver
+            podTemplate:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: cert-manager-acme-http-solver
+                  app.kubernetes.io/part-of: tragge-platform
+
+---
+# =============================================================================
+# PRODUCTION ISSUER - Use this for production certificates
+# =============================================================================
+apiVersion: cert-manager.io/v1
+kind: ClusterIssuer
+metadata:
+  name: letsencrypt-prod
+  labels:
+    app.kubernetes.io/name: letsencrypt-prod
+    app.kubernetes.io/part-of: tragge-platform
+    app.kubernetes.io/component: certificate-management
+spec:
+  acme:
+    # Let's Encrypt ACME production server
+    # Production certificates are trusted by all browsers
+    # RATE LIMITED: 50 certificates per registered domain per week
+    server: https://acme-v02.api.letsencrypt.org/directory
+
+    # Email for certificate expiry notifications
+    # IMPORTANT: Replace with your actual email address
+    # You will receive notifications 30, 14, and 1 day before expiry
+    email: admin@tragge.example.com
+
+    # Secret to store the ACME account private key
+    privateKeySecretRef:
+      name: letsencrypt-prod-account-key
+
+    # HTTP-01 challenge solver configuration
+    # This proves domain ownership by serving a file at http://<domain>/.well-known/acme-challenge/<token>
+    solvers:
+      - http01:
+          ingress:
+            # Use nginx ingress class for challenge solving
+            ingressClassName: nginx
+            # Add pod template for challenge solver
+            podTemplate:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: cert-manager-acme-http-solver
+                  app.kubernetes.io/part-of: tragge-platform

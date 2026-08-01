@@ -1,0 +1,458 @@
+# Prometheus Adapter Configuration for Custom HPA Metrics
+#
+# This ConfigMap configures prometheus-adapter to expose custom Prometheus metrics
+# as Kubernetes custom metrics API, enabling HPA to scale based on application-specific
+# metrics beyond CPU and memory.
+#
+# PREREQUISITES:
+# --------------
+# 1. prometheus-adapter must be installed in the cluster
+# 2. Prometheus must be scraping the target services
+# 3. Services must expose the relevant metrics via /metrics endpoint
+#
+# INSTALLATION (Helm):
+# --------------------
+# helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+# helm install prometheus-adapter prometheus-community/prometheus-adapter \
+#   --namespace tragge \
+#   --set prometheus.url=http://prometheus:9090 \
+#   --set-file rules.default=prometheus-adapter-rules.yaml
+#
+# CUSTOM METRICS EXPLAINED:
+# -------------------------
+# Each rule maps a Prometheus metric to a Kubernetes custom metric:
+#
+# 1. http_requests_per_second
+#    - Source: rate(http_requests_total[2m])
+#    - Use: Scale user-bff based on incoming request rate
+#    - Why: CPU might not reflect request queuing; direct traffic measurement is better
+#
+# 2. websocket_connections_active
+#    - Source: websocket_connections_total{state="active"}
+#    - Use: Scale trade-bff based on live WebSocket connections
+#    - Why: Idle connections consume memory/file descriptors but minimal CPU
+#
+# 3. trading_engine_pending_orders
+#    - Source: trading_engine_orders_pending
+#    - Use: Scale trading-engine based on order queue depth
+#    - Why: Most important metric - order latency directly impacts user experience
+#
+# 4. market_ticks_per_second
+#    - Source: rate(market_ticks_processed_total[1m])
+#    - Use: Scale market-ingestor based on tick throughput
+#    - Why: Detect increased market activity requiring more processing capacity
+#
+# 5. kafka_consumer_lag_pnl
+#    - Source: kafka_consumer_group_lag{topic="pnl.v1"}
+#    - Use: Scale leaderboard-worker based on Kafka consumer lag
+#    - Why: High lag means leaderboard updates are falling behind
+#
+# 6. nginx_connections_active
+#    - Source: nginx_connections_active
+#    - Use: Scale gateway based on active connections
+#    - Why: High connection count may require more nginx workers
+#
+# METRIC RESOLUTION:
+# ------------------
+# The adapter queries Prometheus every 30s (configurable).
+# HPA checks metrics every 15s by default.
+# Combined with 5-minute stabilization window, this prevents rapid oscillation.
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-adapter-config
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: prometheus-adapter
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: tragge-platform
+data:
+  # Main adapter configuration
+  config.yaml: |
+    # Resource metrics rules (optional - usually handled by metrics-server)
+    # resourceRules:
+    #   cpu:
+    #     containerQuery: sum(rate(container_cpu_usage_seconds_total{<<.LabelMatchers>>}[3m])) by (<<.GroupBy>>)
+    #     nodeQuery: sum(rate(container_cpu_usage_seconds_total{<<.LabelMatchers>>, id='/'}[3m])) by (<<.GroupBy>>)
+    #     resources:
+    #       overrides:
+    #         node:
+    #           resource: node
+    #         namespace:
+    #           resource: namespace
+    #         pod:
+    #           resource: pod
+    #     containerLabel: container
+
+    # Custom metrics rules - map Prometheus queries to K8s custom metrics API
+    rules:
+      # =======================================================================
+      # HTTP Request Rate (requests per second)
+      # =======================================================================
+      # Maps to: custom.metrics.k8s.io/v1beta1/namespaces/tragge/pods/*/http_requests_per_second
+      # Used by: user-bff HPA
+      - seriesQuery: 'http_requests_total{namespace="tragge"}'
+        resources:
+          overrides:
+            namespace:
+              resource: namespace
+            pod:
+              resource: pod
+        name:
+          matches: "^(.*)_total$"
+          as: "${1}_per_second"
+        metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'
+
+      # =======================================================================
+      # WebSocket Active Connections
+      # =======================================================================
+      # Maps to: custom.metrics.k8s.io/v1beta1/namespaces/tragge/pods/*/websocket_connections_active
+      # Used by: trade-bff HPA
+      # Source: trade-bff should expose websocket_connections{state="active"}
+      - seriesQuery: 'websocket_connections{namespace="tragge",state="active"}'
+        resources:
+          overrides:
+            namespace:
+              resource: namespace
+            pod:
+              resource: pod
+        name:
+          matches: "^websocket_connections$"
+          as: "websocket_connections_active"
+        metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'
+
+      # =======================================================================
+      # Trading Engine Pending Orders
+      # =======================================================================
+      # Maps to: custom.metrics.k8s.io/v1beta1/namespaces/tragge/pods/*/trading_engine_pending_orders
+      # Used by: trading-engine HPA
+      # CRITICAL METRIC: Order queue depth directly impacts trading latency
+      - seriesQuery: 'trading_engine_orders_pending{namespace="tragge"}'
+        resources:
+          overrides:
+            namespace:
+              resource: namespace
+            pod:
+              resource: pod
+        name:
+          matches: "^trading_engine_orders_pending$"
+          as: "trading_engine_pending_orders"
+        metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'
+
+      # Alternative: Scale based on order processing latency (p99)
+      - seriesQuery: 'trading_engine_order_processing_duration_seconds{namespace="tragge"}'
+        resources:
+          overrides:
+            namespace:
+              resource: namespace
+            pod:
+              resource: pod
+        name:
+          matches: "^.*$"
+          as: "trading_engine_order_latency_p99"
+        metricsQuery: 'histogram_quantile(0.99, sum(rate(<<.Series>>_bucket{<<.LabelMatchers>>}[2m])) by (le, <<.GroupBy>>))'
+
+      # =======================================================================
+      # Market Ticks Per Second
+      # =======================================================================
+      # Maps to: custom.metrics.k8s.io/v1beta1/namespaces/tragge/pods/*/market_ticks_per_second
+      # Used by: market-ingestor HPA
+      - seriesQuery: 'market_ticks_processed_total{namespace="tragge"}'
+        resources:
+          overrides:
+            namespace:
+              resource: namespace
+            pod:
+              resource: pod
+        name:
+          matches: "^(.*)_total$"
+          as: "${1}_per_second"
+        metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[1m])) by (<<.GroupBy>>)'
+
+      # =======================================================================
+      # Kafka Consumer Lag (for leaderboard-worker)
+      # =======================================================================
+      # Maps to: custom.metrics.k8s.io/v1beta1/namespaces/tragge/pods/*/kafka_consumer_lag_pnl
+      # Used by: leaderboard-worker HPA
+      # Tracks lag on pnl.v1 topic consumer group
+      - seriesQuery: 'kafka_consumer_group_lag{namespace="tragge",topic="pnl.v1"}'
+        resources:
+          overrides:
+            namespace:
+              resource: namespace
+            pod:
+              resource: pod
+        name:
+          matches: "^kafka_consumer_group_lag$"
+          as: "kafka_consumer_lag_pnl"
+        metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'
+
+      # Generic Kafka consumer lag for any topic (useful for other workers)
+      - seriesQuery: 'kafka_consumer_group_lag{namespace="tragge"}'
+        resources:
+          overrides:
+            namespace:
+              resource: namespace
+            pod:
+              resource: pod
+            topic:
+              group: kafka.strimzi.io
+              resource: kafkatopic
+        name:
+          matches: "^(.*)$"
+          as: "${1}"
+        metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'
+
+      # =======================================================================
+      # Nginx Active Connections
+      # =======================================================================
+      # Maps to: custom.metrics.k8s.io/v1beta1/namespaces/tragge/pods/*/nginx_connections_active
+      # Used by: gateway HPA
+      # Requires nginx stub_status module enabled
+      - seriesQuery: 'nginx_connections_active{namespace="tragge"}'
+        resources:
+          overrides:
+            namespace:
+              resource: namespace
+            pod:
+              resource: pod
+        name:
+          matches: "^(.*)$"
+          as: "${1}"
+        metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'
+
+      # Nginx requests per second
+      - seriesQuery: 'nginx_http_requests_total{namespace="tragge"}'
+        resources:
+          overrides:
+            namespace:
+              resource: namespace
+            pod:
+              resource: pod
+        name:
+          matches: "^(.*)_total$"
+          as: "${1}_per_second"
+        metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'
+
+      # =======================================================================
+      # Generic Rate Rules
+      # =======================================================================
+      # Converts any *_total counter to *_per_second rate
+      - seriesQuery: '{namespace="tragge",__name__=~"^.*_total$"}'
+        resources:
+          overrides:
+            namespace:
+              resource: namespace
+            pod:
+              resource: pod
+        name:
+          matches: "^(.*)_total$"
+          as: "${1}_per_second"
+        metricsQuery: 'sum(rate(<<.Series>>{<<.LabelMatchers>>}[2m])) by (<<.GroupBy>>)'
+
+    # External metrics rules (for metrics not associated with K8s objects)
+    # Useful for scaling based on external queue depths, etc.
+    externalRules:
+      # Redpanda/Kafka topic lag (cluster-wide, not per-pod)
+      - seriesQuery: 'kafka_consumergroup_lag{namespace="tragge"}'
+        resources: {}
+        name:
+          matches: "^(.*)$"
+          as: "kafka_${1}"
+        metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>}) by (consumergroup, topic)'
+
+      # Total pending orders across all trading-engine pods
+      - seriesQuery: 'trading_engine_orders_pending{namespace="tragge"}'
+        resources: {}
+        name:
+          matches: "^(.*)$"
+          as: "total_${1}"
+        metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>})'
+
+---
+# =============================================================================
+# Prometheus Adapter Deployment Configuration
+# =============================================================================
+# This shows example deployment settings for prometheus-adapter.
+# In production, use Helm chart with these values.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-adapter-values
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: prometheus-adapter
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: tragge-platform
+  annotations:
+    description: "Helm values for prometheus-adapter installation"
+data:
+  values.yaml: |
+    # Prometheus adapter Helm values
+    # Install with: helm upgrade --install prometheus-adapter prometheus-community/prometheus-adapter -f values.yaml
+
+    replicas: 2
+
+    prometheus:
+      url: http://prometheus.tragge.svc.cluster.local
+      port: 9090
+
+    # Use the config from prometheus-adapter-config ConfigMap
+    rules:
+      existing: prometheus-adapter-config
+
+    # Resource requests/limits
+    resources:
+      requests:
+        cpu: 100m
+        memory: 128Mi
+      limits:
+        cpu: 500m
+        memory: 512Mi
+
+    # Pod disruption budget for high availability
+    podDisruptionBudget:
+      enabled: true
+      minAvailable: 1
+
+    # Metrics refresh interval
+    metricsRelistInterval: 30s
+
+    # Log verbosity
+    logLevel: 4
+
+    # Service account
+    serviceAccount:
+      create: true
+      name: prometheus-adapter
+
+    # Node affinity (prefer same nodes as prometheus)
+    affinity:
+      podAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+          - weight: 100
+            podAffinityTerm:
+              labelSelector:
+                matchLabels:
+                  app: prometheus
+              topologyKey: kubernetes.io/hostname
+
+---
+# =============================================================================
+# ServiceMonitor for Custom Metrics (for Prometheus Operator)
+# =============================================================================
+# If using Prometheus Operator, add these ServiceMonitors to scrape
+# the custom metrics from each service.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: servicemonitor-examples
+  namespace: tragge
+  labels:
+    app.kubernetes.io/name: prometheus-adapter
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/part-of: tragge-platform
+  annotations:
+    description: "Example ServiceMonitor configurations for Prometheus Operator"
+data:
+  # These are examples - create actual ServiceMonitor resources if using Prometheus Operator
+  servicemonitors.yaml: |
+    # Trade-BFF ServiceMonitor - captures WebSocket connection metrics
+    ---
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: trade-bff
+      namespace: tragge
+      labels:
+        app.kubernetes.io/name: trade-bff
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: trade-bff
+      endpoints:
+        - port: http
+          path: /metrics
+          interval: 15s
+          scrapeTimeout: 10s
+
+    # Trading-Engine ServiceMonitor - captures pending orders metrics
+    ---
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: trading-engine
+      namespace: tragge
+      labels:
+        app.kubernetes.io/name: trading-engine
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: trading-engine
+      endpoints:
+        - port: http
+          path: /metrics
+          interval: 10s  # More frequent for critical metrics
+          scrapeTimeout: 5s
+
+    # Leaderboard-Worker ServiceMonitor - captures Kafka consumer lag
+    ---
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: leaderboard-worker
+      namespace: tragge
+      labels:
+        app.kubernetes.io/name: leaderboard-worker
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: leaderboard-worker
+      endpoints:
+        - port: http
+          path: /metrics
+          interval: 15s
+          scrapeTimeout: 10s
+
+    # Market-Ingestor ServiceMonitor - captures tick processing metrics
+    ---
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: market-ingestor
+      namespace: tragge
+      labels:
+        app.kubernetes.io/name: market-ingestor
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: market-ingestor
+      endpoints:
+        - port: http
+          path: /metrics
+          interval: 15s
+          scrapeTimeout: 10s
+
+    # Gateway (Nginx) ServiceMonitor
+    # Note: Requires nginx-prometheus-exporter sidecar or stub_status module
+    ---
+    apiVersion: monitoring.coreos.com/v1
+    kind: ServiceMonitor
+    metadata:
+      name: gateway
+      namespace: tragge
+      labels:
+        app.kubernetes.io/name: gateway
+    spec:
+      selector:
+        matchLabels:
+          app.kubernetes.io/name: gateway
+      endpoints:
+        - port: metrics  # Assumes metrics port is exposed
+          path: /metrics
+          interval: 15s
+          scrapeTimeout: 10s
