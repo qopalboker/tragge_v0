@@ -8,8 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Parsaeffatravesh/tragge/apps/payment-service/providers"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/Parsaeffatravesh/tragge/apps/payment-service/providers"
 )
 
 type fixtureReplayStore struct {
@@ -35,7 +36,7 @@ func TestWebhookSecurityFreshnessReplayAndSafeKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	headers := map[string]string{"x-webhook-timestamp": now.Format(time.RFC3339)}
+	headers := map[string]string{webhookTimestampHeader: now.Format(time.RFC3339)}
 	if err := security.Validate(context.Background(), providers.ProviderNowPayments, headers, body, event); err != nil {
 		t.Fatalf("fresh signed event rejected: %v", err)
 	}
@@ -51,7 +52,7 @@ func TestWebhookSecurityFreshnessReplayAndSafeKey(t *testing.T) {
 		t.Fatalf("replay accepted: %v", err)
 	}
 	store.created = true
-	stale := map[string]string{"x-webhook-timestamp": now.Add(-6 * time.Minute).Format(time.RFC3339)}
+	stale := map[string]string{webhookTimestampHeader: now.Add(-6 * time.Minute).Format(time.RFC3339)}
 	if err := security.Validate(context.Background(), providers.ProviderNowPayments, stale, body, event); !errors.Is(err, errWebhookTimestamp) {
 		t.Fatalf("stale webhook accepted: %v", err)
 	}
@@ -82,7 +83,11 @@ func TestWebhookSecurityRedisReplayIntegration(t *testing.T) {
 		t.Skip("SEC006_REDIS_ADDR is required for isolated runtime validation")
 	}
 	client := redis.NewClient(&redis.Options{Addr: address})
-	defer client.Close()
+	defer func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("close isolated Redis client: %v", err)
+		}
+	}()
 	ctx := context.Background()
 	if err := client.Ping(ctx).Err(); err != nil {
 		t.Fatalf("isolated Redis unavailable: %v", err)
@@ -93,7 +98,7 @@ func TestWebhookSecurityRedisReplayIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 	event := &providers.WebhookEvent{ProviderPaymentID: "redis-fixture", OrderID: "order-fixture", Status: providers.PaymentStatusFinished}
-	headers := map[string]string{"x-webhook-timestamp": now.Format(time.RFC3339)}
+	headers := map[string]string{webhookTimestampHeader: now.Format(time.RFC3339)}
 	body := []byte(`{"unique":"sec006-redis-replay-fixture"}`)
 	if err := security.Validate(ctx, providers.ProviderNowPayments, headers, body, event); err != nil {
 		t.Fatalf("first webhook rejected: %v", err)

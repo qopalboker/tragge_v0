@@ -756,9 +756,20 @@ fetches base history, and passes the explicit PR base SHA (or push-before SHA) t
 `golangci-lint --new-from-rev`. Local static validation exited 0 for all five
 workflow invariants, pnpm reported `8.15.0`, and `git diff --check` exited 0. A
 requested frozen-lockfile reinstall was not recorded because the privilege-review
-channel disconnected; it is not claimed as executed. The clean GitHub replacement
-run is the authoritative delivery evidence and merge remains prohibited until it
-passes on the reviewed final head.
+channel disconnected; it is not claimed as executed. Replacement run `30719621664` proved the workflow correction: frozen install,
+both frontend lint commands, and both frontend production builds passed. Its
+incremental Go lint then isolated nine SEC-006 issues instead of inherited debt:
+three import-order findings, three contextless test request constructors, one
+unchecked isolated-Redis client close, and two repeated webhook-header literals.
+Go tests/builds skipped after lint failed and are not reported as successful.
+Those nine findings were corrected only in the four affected payment-service
+security/retirement files. The first targeted local Go command failed before
+execution because sandbox cache creation was denied. Its authorized rerun passed
+payment-service unit tests, race tests, vet, all three package builds, Payment4
+retirement validation (12 allowlisted evidence files and zero active references),
+and the SEC-006 structural validator; the exact temporary cache was then removed
+and verified absent. The next clean GitHub run is the authoritative delivery
+evidence and merge remains prohibited until it passes on the reviewed final head.
 
 ## 75. Current explicit decision
 

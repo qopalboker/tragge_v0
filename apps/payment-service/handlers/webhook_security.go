@@ -10,9 +10,12 @@ import (
 	"strings"
 	"time"
 
-	"github.com/Parsaeffatravesh/tragge/apps/payment-service/providers"
 	"github.com/redis/go-redis/v9"
+
+	"github.com/Parsaeffatravesh/tragge/apps/payment-service/providers"
 )
+
+const webhookTimestampHeader = "x-webhook-timestamp"
 
 var (
 	errWebhookTimestamp = errors.New("webhook timestamp rejected")
@@ -44,7 +47,7 @@ func NewWebhookSecurity(store replayStore, maxAge time.Duration, requireTimestam
 }
 
 func webhookTimestamp(headers map[string]string, body []byte) (time.Time, bool) {
-	for _, name := range []string{"x-webhook-timestamp", "x-nowpayments-timestamp"} {
+	for _, name := range []string{webhookTimestampHeader, "x-nowpayments-timestamp"} {
 		if value := strings.TrimSpace(headers[name]); value != "" {
 			if parsed, err := time.Parse(time.RFC3339, value); err == nil {
 				return parsed, true

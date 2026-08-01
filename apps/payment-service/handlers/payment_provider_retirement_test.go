@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,7 +11,8 @@ import (
 func TestRetiredCryptoProviderFailsBeforeRuntimeLookup(t *testing.T) {
 	handler := &DepositHandler{}
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(
+	request := httptest.NewRequestWithContext(
+		context.Background(),
 		http.MethodPost,
 		"/api/payments/deposit/crypto/create",
 		strings.NewReader(`{"amount_cents":500,"provider":"payment4","pay_currency":"usdttrc20"}`),

@@ -1,14 +1,16 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
 
-	"github.com/Parsaeffatravesh/tragge/apps/payment-service/providers"
 	"github.com/go-chi/chi/v5"
+
+	"github.com/Parsaeffatravesh/tragge/apps/payment-service/providers"
 )
 
 func TestRetiredPaymentProviderRouteIsNotRegistered(t *testing.T) {
@@ -20,7 +22,7 @@ func TestRetiredPaymentProviderRouteIsNotRegistered(t *testing.T) {
 	})
 
 	retired := httptest.NewRecorder()
-	router.ServeHTTP(retired, httptest.NewRequest(http.MethodPost, "/webhooks/payment4", nil))
+	router.ServeHTTP(retired, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/webhooks/payment4", nil))
 	if retired.Code != http.StatusNotFound {
 		t.Fatalf("retired provider route status=%d want=%d", retired.Code, http.StatusNotFound)
 	}
@@ -29,7 +31,7 @@ func TestRetiredPaymentProviderRouteIsNotRegistered(t *testing.T) {
 	}
 
 	remaining := httptest.NewRecorder()
-	router.ServeHTTP(remaining, httptest.NewRequest(http.MethodPost, "/webhooks/nowpayments", nil))
+	router.ServeHTTP(remaining, httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/webhooks/nowpayments", nil))
 	if remaining.Code != http.StatusNoContent || !called {
 		t.Fatalf("remaining provider route status=%d called=%v", remaining.Code, called)
 	}
