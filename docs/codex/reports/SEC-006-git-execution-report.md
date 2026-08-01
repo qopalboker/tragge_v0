@@ -756,7 +756,9 @@ fetches base history, and passes the explicit PR base SHA (or push-before SHA) t
 `golangci-lint --new-from-rev`. Local static validation exited 0 for all five
 workflow invariants, pnpm reported `8.15.0`, and `git diff --check` exited 0. A
 requested frozen-lockfile reinstall was not recorded because the privilege-review
-channel disconnected; it is not claimed as executed. Replacement run `30719621664` proved the workflow correction: frozen install,
+channel disconnected; it is not claimed as executed.
+
+Replacement run `30719621664` proved the workflow correction: frozen install,
 both frontend lint commands, and both frontend production builds passed. Its
 incremental Go lint then isolated nine SEC-006 issues instead of inherited debt:
 three import-order findings, three contextless test request constructors, one
@@ -768,8 +770,19 @@ execution because sandbox cache creation was denied. Its authorized rerun passed
 payment-service unit tests, race tests, vet, all three package builds, Payment4
 retirement validation (12 allowlisted evidence files and zero active references),
 and the SEC-006 structural validator; the exact temporary cache was then removed
-and verified absent. The next clean GitHub run is the authoritative delivery
-evidence and merge remains prohibited until it passes on the reviewed final head.
+and verified absent.
+
+Run `30719922881` cleared all nine payment-service findings and again passed the
+complete frontend job. Incremental lint traversed every Go workspace module and
+reported one remaining SEC-006 issue: the User BFF repeated its authentication
+context literal in lockout and edge-policy construction. Tests/builds skipped
+after lint and are not reported as successful. The two uses now share the typed
+`userSecurityContext` constant; no behavior or namespace value changed. A targeted
+local User BFF test/vet/build request was not recorded because the privilege-review
+channel disconnected, so it is not claimed as executed and was not retried through
+a workaround. Its exact temporary cache was removed and verified absent. The next
+clean GitHub run is the authoritative final-head evidence and merge remains
+prohibited until it passes.
 
 ## 75. Current explicit decision
 

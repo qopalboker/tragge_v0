@@ -101,7 +101,7 @@ export function validateSEC006Repository() {
   requireText('packages/sms/otp.go', [/CanonicalOTPCooldown/, /CanonicalOTPMaxAttempts/, /phoneAuthPurpose/, /RecordFailure/, /Consume/]);
   requireText('packages/sms/otp_security_properties_test.go', [/TestOTPConcurrentIssueCreatesOneActiveCode/]);
   requireText('packages/sms/otp_redis_integration_test.go', [/purpose/i, /replay/i]);
-  requireText('apps/user-bff/server/app.go', [/ClassOTPRequest|PoliciesForService\("user"\)/, /distributedLoginLockout/]);
+  requireText('apps/user-bff/server/app.go', [/const userSecurityContext = "user"/, /PoliciesForService\(userSecurityContext\)/, /Namespace: userSecurityContext/, /distributedLoginLockout/]);
   requireText('apps/admin-bff/server/app.go', [/distributedLoginLockout/, /edgePolicy\.ActorHandler/]);
 
   const compose = requireText('infra/docker/docker-compose.yml', [/USER_CORS_ALLOWED_ORIGINS/, /ADMIN_CORS_ALLOWED_ORIGINS/, /TRUSTED_PROXY_CIDRS/, /EDGE_MAX_HEADER_BYTES/, /172\.30\.0\.0\/24/]);

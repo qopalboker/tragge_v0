@@ -40,6 +40,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const userSecurityContext = "user"
+
 // Config holds application configuration.
 type Config struct {
 	Port                string
@@ -838,7 +840,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	var distributedLoginLockout *ratelimit.LoginLockout
 	if redisClient != nil {
 		distributedLoginLockout, err = ratelimit.NewLoginLockout(redisClient.UniversalClient, ratelimit.LockoutConfig{
-			Namespace: "user", Threshold: 8, LockFor: 15 * time.Minute, Retention: time.Hour,
+			Namespace: userSecurityContext, Threshold: 8, LockFor: 15 * time.Minute, Retention: time.Hour,
 		})
 		if err != nil {
 			log.Fatal("invalid User login lockout configuration")
@@ -930,7 +932,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	if redisClient != nil {
 		edgeRedis = redisClient.UniversalClient
 	}
-	edgePolicy := ratelimit.NewPolicyMiddleware(edgeRedis, ratelimit.PoliciesForService("user"), nil, func(class ratelimit.EndpointClass, reason string) {
+	edgePolicy := ratelimit.NewPolicyMiddleware(edgeRedis, ratelimit.PoliciesForService(userSecurityContext), nil, func(class ratelimit.EndpointClass, reason string) {
 		log.Warn("Edge security request denied", zap.String("policy_class", string(class)), zap.String("reason", reason))
 	})
 
