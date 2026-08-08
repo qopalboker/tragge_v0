@@ -71,6 +71,7 @@ test('workflow uses structured discovery and the pinned linter', () => {
     sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
     golangci-lint version
     mapfile -t modules < <(go work edit -json | jq -r '.Use[].DiskPath')
+    ENVIRONMENT: test
     for dir in "\${modules[@]}"; do
       echo "Testing $dir..."
       go test -race -count=1 ./...

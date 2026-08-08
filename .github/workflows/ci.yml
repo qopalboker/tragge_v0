@@ -94,6 +94,8 @@ jobs:
             fi
           done
       - name: Test
+        env:
+          ENVIRONMENT: test
         run: |
           mapfile -t modules < <(go work edit -json | jq -r '.Use[].DiskPath')
 

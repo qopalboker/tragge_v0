@@ -82,6 +82,7 @@ export function validateWorkflowSource(source) {
     /golangci-lint version/,
     /echo "Testing \$dir\.\.\."/,
     /go test -race -count=1 \.\/\.\.\./,
+    /ENVIRONMENT: test/,
     /echo "Building \$dir\.\.\."/,
     /go build \.\/\.\.\./,
   ];
