@@ -94,13 +94,61 @@ jobs:
             fi
           done
       - name: Test
-        run: go test -race -count=1 ./packages/... ./apps/...
+        run: |
+          mapfile -t modules < <(go work edit -json | jq -r '.Use[].DiskPath')
+
+          if [ "${#modules[@]}" -eq 0 ]; then
+            echo "::error::go.work contains no workspace modules"
+            exit 1
+          fi
+
+          declare -A seen_modules=()
+          for dir in "${modules[@]}"; do
+            if [ -n "${seen_modules[$dir]+present}" ]; then
+              echo "::error::go.work contains a duplicate workspace module: $dir"
+              exit 1
+            fi
+            seen_modules["$dir"]=1
+
+            if [ ! -d "$dir" ]; then
+              echo "::error::go.work module directory does not exist: $dir"
+              exit 1
+            fi
+
+            echo "Testing $dir..."
+            (
+              cd "$dir"
+              go test -race -count=1 ./...
+            )
+          done
       - name: Build
         run: |
-          go build ./apps/api-server/... &
-          go build ./apps/trading-core/... &
-          go build ./apps/worker/... &
-          wait
+          mapfile -t modules < <(go work edit -json | jq -r '.Use[].DiskPath')
+
+          if [ "${#modules[@]}" -eq 0 ]; then
+            echo "::error::go.work contains no workspace modules"
+            exit 1
+          fi
+
+          declare -A seen_modules=()
+          for dir in "${modules[@]}"; do
+            if [ -n "${seen_modules[$dir]+present}" ]; then
+              echo "::error::go.work contains a duplicate workspace module: $dir"
+              exit 1
+            fi
+            seen_modules["$dir"]=1
+
+            if [ ! -d "$dir" ]; then
+              echo "::error::go.work module directory does not exist: $dir"
+              exit 1
+            fi
+
+            echo "Building $dir..."
+            (
+              cd "$dir"
+              go build ./...
+            )
+          done
 
   # ---- Frontend jobs (skipped if no frontend changes) ----
   lint-and-test-frontend:

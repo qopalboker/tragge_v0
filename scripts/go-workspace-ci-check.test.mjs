@@ -70,9 +70,20 @@ test('workflow uses structured discovery and the pinned linter', () => {
     https://raw.githubusercontent.com/golangci/golangci-lint/v2.12.2/install.sh
     sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
     golangci-lint version
+    mapfile -t modules < <(go work edit -json | jq -r '.Use[].DiskPath')
+    for dir in "\${modules[@]}"; do
+      echo "Testing $dir..."
+      go test -race -count=1 ./...
+    done
+    mapfile -t modules < <(go work edit -json | jq -r '.Use[].DiskPath')
+    for dir in "\${modules[@]}"; do
+      echo "Building $dir..."
+      go build ./...
+    done
   `;
   assert.deepEqual(validateWorkflowSource(valid), []);
   assert.notDeepEqual(validateWorkflowSource("grep '^\\s*\\./' go.work | tr -d '\\t '"), []);
+  assert.notDeepEqual(validateWorkflowSource('go test -race -count=1 ./packages/... ./apps/...'), []);
 });
 
 test('actual workspace structured output matches every declared Use entry', () => {

@@ -80,12 +80,26 @@ export function validateWorkflowSource(source) {
     /golangci-lint\/v2\.12\.2\/install\.sh/,
     /sh -s -- -b "\$\(go env GOPATH\)\/bin" v2\.12\.2/,
     /golangci-lint version/,
+    /echo "Testing \$dir\.\.\."/,
+    /go test -race -count=1 \.\/\.\.\./,
+    /echo "Building \$dir\.\.\."/,
+    /go build \.\/\.\.\./,
   ];
   for (const pattern of required) {
     if (!pattern.test(source)) failures.push(`CI workflow is missing ${pattern}`);
   }
   if (/grep ['"]\^\\s\*\\\.\//.test(source) || /tr -d ['"]\\t ['"]/.test(source)) {
     failures.push('CI workflow retains text-based go.work module discovery');
+  }
+  const discoveryCount = source.match(/mapfile -t modules < <\(go work edit -json \| jq -r '\.Use\[\]\.DiskPath'\)/g)?.length ?? 0;
+  if (discoveryCount < 3) {
+    failures.push('CI workflow must use structured workspace discovery for lint, test, and build');
+  }
+  if (/go test[^\n]*\.\/packages\/\.\.\. [^\n]*\.\/apps\/\.\.\./.test(source)) {
+    failures.push('CI workflow retains invalid workspace-root Go test globs');
+  }
+  if (/go build \.\/apps\//.test(source)) {
+    failures.push('CI workflow retains hard-coded workspace-root Go build globs');
   }
   return failures;
 }
