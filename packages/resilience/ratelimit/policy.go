@@ -12,6 +12,7 @@ import (
 
 	"github.com/Parsaeffatravesh/tragge/packages/auth"
 	"github.com/Parsaeffatravesh/tragge/packages/validation"
+
 	"github.com/redis/go-redis/v9"
 )
 
@@ -33,6 +34,13 @@ const (
 	ClassAdmin         EndpointClass = "admin"
 	ClassWebhook       EndpointClass = "webhook"
 	ClassWebSocket     EndpointClass = "websocket"
+)
+
+const (
+	serviceUser    = "user"
+	serviceAdmin   = string(ClassAdmin)
+	serviceTrade   = "trade"
+	servicePayment = "payment"
 )
 
 // Policy describes one explicit route-class control.
@@ -226,7 +234,7 @@ func PoliciesForService(service string) []Policy {
 		{PathPrefix: "/", Class: ClassPublicRead, Limit: 120, Window: minute, Burst: 20, BurstWindow: time.Second},
 	}
 	switch service {
-	case "user":
+	case serviceUser:
 		return append(common,
 			Policy{Method: http.MethodPost, PathPrefix: "/api/user/auth/login", Class: ClassLogin, Limit: 10, Window: 10 * minute, Burst: 3, BurstWindow: minute, HighRisk: true},
 			Policy{Method: http.MethodPost, PathPrefix: "/api/user/auth/register", Class: ClassRegistration, Limit: 5, Window: 10 * minute, Burst: 2, BurstWindow: minute, HighRisk: true},
@@ -235,18 +243,18 @@ func PoliciesForService(service string) []Policy {
 			Policy{Method: http.MethodPost, PathPrefix: "/api/user/auth/forgot-password", Class: ClassPasswordReset, Limit: 5, Window: 10 * minute, Burst: 2, BurstWindow: minute, HighRisk: true},
 			Policy{Method: http.MethodPost, PathPrefix: "/api/user/contests/", Class: ClassContestJoin, Limit: 15, Window: minute, Burst: 3, BurstWindow: time.Second, HighRisk: true},
 			Policy{PathPrefix: "/api/user/", Class: ClassPublicRead, Limit: 180, Window: minute, Burst: 30, BurstWindow: time.Second})
-	case "admin":
+	case serviceAdmin:
 		return append(common,
 			Policy{Method: http.MethodPost, PathPrefix: "/api/admin/auth/login", Class: ClassLogin, Limit: 5, Window: 10 * minute, Burst: 2, BurstWindow: minute, HighRisk: true},
 			Policy{Method: http.MethodPost, PathPrefix: "/api/admin/reauthenticate", Class: ClassAdmin, Limit: 5, Window: 5 * minute, Burst: 2, BurstWindow: minute, HighRisk: true},
 			Policy{PathPrefix: "/api/admin/", Class: ClassAdmin, Limit: 120, Window: minute, Burst: 20, BurstWindow: time.Second, HighRisk: true})
-	case "trade":
+	case serviceTrade:
 		return append(common,
 			Policy{Method: http.MethodGet, PathPrefix: "/ws/", Class: ClassWebSocket, Limit: 20, Window: minute, Burst: 3, BurstWindow: time.Second, HighRisk: true},
 			Policy{Method: http.MethodPost, PathPrefix: "/api/trade/orders", Class: ClassOrder, Limit: 60, Window: minute, Burst: 10, BurstWindow: time.Second, HighRisk: true},
 			Policy{Method: http.MethodDelete, PathPrefix: "/api/trade/orders/", Class: ClassCancel, Limit: 90, Window: minute, Burst: 15, BurstWindow: time.Second, HighRisk: true},
 			Policy{PathPrefix: "/api/trade/", Class: ClassPublicRead, Limit: 240, Window: minute, Burst: 40, BurstWindow: time.Second})
-	case "payment":
+	case servicePayment:
 		return append(common,
 			Policy{Method: http.MethodPost, PathPrefix: "/webhooks/", Class: ClassWebhook, Limit: 120, Window: minute, Burst: 20, BurstWindow: time.Second, HighRisk: true},
 			Policy{PathPrefix: "/callback/jibit", Class: ClassWebhook, Limit: 120, Window: minute, Burst: 20, BurstWindow: time.Second, HighRisk: true},

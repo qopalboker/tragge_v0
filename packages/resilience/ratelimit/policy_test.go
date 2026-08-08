@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Parsaeffatravesh/tragge/packages/auth"
+
 	"github.com/redis/go-redis/v9"
 )
 
@@ -34,7 +35,7 @@ func TestPolicyMiddlewareLimitAndSafeKeys(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	for i, want := range []int{http.StatusNoContent, http.StatusNoContent, http.StatusTooManyRequests} {
-		req := httptest.NewRequest(http.MethodPost, "/login", nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/login", nil)
 		req.RemoteAddr = "203.0.113.19:1234"
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
@@ -61,7 +62,7 @@ func TestPolicyMiddlewareFailsClosedAndClassifies(t *testing.T) {
 	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	req := httptest.NewRequest(http.MethodPost, "/withdraw", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/withdraw", nil)
 	req.RemoteAddr = "203.0.113.9:1234"
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -74,7 +75,7 @@ func TestPolicyMiddlewareFailsClosedAndClassifies(t *testing.T) {
 		ClassPasswordReset: false, ClassContestJoin: false, ClassOrder: false, ClassCancel: false,
 		ClassDeposit: false, ClassWithdrawal: false, ClassAdmin: false, ClassWebhook: false, ClassWebSocket: false,
 	}
-	for _, service := range []string{"user", "admin", "trade", "payment"} {
+	for _, service := range []string{serviceUser, serviceAdmin, serviceTrade, servicePayment} {
 		for _, candidate := range PoliciesForService(service) {
 			if _, ok := required[candidate.Class]; ok {
 				required[candidate.Class] = true
@@ -101,13 +102,13 @@ func TestActorPolicyUsesAuthenticatedContext(t *testing.T) {
 	handler := middleware.ActorHandler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	missing := httptest.NewRequest(http.MethodPost, "/order", nil)
+	missing := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/order", nil)
 	missingRec := httptest.NewRecorder()
 	handler.ServeHTTP(missingRec, missing)
 	if missingRec.Code != http.StatusUnauthorized {
 		t.Fatalf("missing actor status=%d", missingRec.Code)
 	}
-	req := httptest.NewRequest(http.MethodPost, "/order", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/order", nil)
 	req = req.WithContext(context.WithValue(req.Context(), auth.UserIDKey, "actor-fixture"))
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
@@ -125,7 +126,11 @@ func TestRedisPolicyAndLoginLockoutIntegration(t *testing.T) {
 		t.Skip("SEC006_REDIS_ADDR is required for isolated runtime validation")
 	}
 	client := redis.NewClient(&redis.Options{Addr: address})
-	defer client.Close()
+	t.Cleanup(func() {
+		if err := client.Close(); err != nil {
+			t.Errorf("close isolated Redis client: %v", err)
+		}
+	})
 	ctx := context.Background()
 	if err := client.Ping(ctx).Err(); err != nil {
 		t.Fatalf("isolated Redis unavailable: %v", err)
@@ -136,7 +141,7 @@ func TestRedisPolicyAndLoginLockoutIntegration(t *testing.T) {
 	defer client.FlushDB(ctx)
 
 	classPolicies := map[EndpointClass]Policy{}
-	for _, service := range []string{"user", "admin", "trade", "payment"} {
+	for _, service := range []string{serviceUser, serviceAdmin, serviceTrade, servicePayment} {
 		for _, candidate := range PoliciesForService(service) {
 			if _, present := classPolicies[candidate.Class]; !present {
 				candidate.Limit, candidate.Window = 1, time.Minute
@@ -172,7 +177,7 @@ func TestRedisPolicyAndLoginLockoutIntegration(t *testing.T) {
 				}))
 			}
 			for index, handler := range []http.Handler{newClassHandler(), newClassHandler()} {
-				req := httptest.NewRequest(method, path, nil)
+				req := httptest.NewRequestWithContext(context.Background(), method, path, nil)
 				req.RemoteAddr = "198.51.100.44:1234"
 				rec := httptest.NewRecorder()
 				handler.ServeHTTP(rec, req)
@@ -195,7 +200,7 @@ func TestRedisPolicyAndLoginLockoutIntegration(t *testing.T) {
 		return m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) }))
 	}
 	for index, handler := range []http.Handler{newHandler(), newHandler(), newHandler()} {
-		req := httptest.NewRequest(http.MethodPost, "/login", nil)
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodPost, "/login", nil)
 		req.RemoteAddr = "203.0.113.27:1234"
 		rec := httptest.NewRecorder()
 		handler.ServeHTTP(rec, req)
