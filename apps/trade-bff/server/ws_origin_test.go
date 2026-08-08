@@ -7,6 +7,7 @@ import (
 )
 
 func TestCheckWebSocketOrigin(t *testing.T) {
+	t.Setenv("ENVIRONMENT", "development")
 	tests := []struct {
 		name           string
 		origin         string
@@ -15,9 +16,9 @@ func TestCheckWebSocketOrigin(t *testing.T) {
 		want           bool
 	}{
 		{
-			name:   "no origin header (same-origin) is allowed",
+			name:   "no origin header is rejected",
 			origin: "",
-			want:   true,
+			want:   false,
 		},
 		{
 			name:           "allowed origin passes",
@@ -38,10 +39,10 @@ func TestCheckWebSocketOrigin(t *testing.T) {
 			want:           false,
 		},
 		{
-			name:           "wildcard origin pattern matches",
+			name:           "wildcard origin pattern is rejected",
 			origin:         "https://myspace-5173.app.github.dev",
 			allowedOrigins: "https://*.app.github.dev",
-			want:           true,
+			want:           false,
 		},
 		{
 			name:           "wildcard origin pattern rejects non-match",
@@ -60,10 +61,10 @@ func TestCheckWebSocketOrigin(t *testing.T) {
 			want:   true,
 		},
 		{
-			name:          "dev default allows codespaces when ALLOWED_ORIGINS not set",
-			origin:        "https://myspace-5173.app.github.dev",
-			codespaceName: "myspace",
-			want:          true,
+			name:           "explicit codespace origin is allowed",
+			origin:         "https://myspace-5173.app.github.dev",
+			allowedOrigins: "https://myspace-5173.app.github.dev",
+			want:           true,
 		},
 		{
 			name:   "dev default rejects unknown origin when ALLOWED_ORIGINS not set",
@@ -74,6 +75,11 @@ func TestCheckWebSocketOrigin(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("USER_FRONTEND_ORIGIN", "")
+			t.Setenv("TRADE_CORS_ALLOWED_ORIGINS", "")
+			if tt.allowedOrigins != "" {
+				t.Setenv("TRADE_CORS_ALLOWED_ORIGINS", tt.allowedOrigins)
+			}
 			// Set environment
 			if tt.allowedOrigins != "" {
 				os.Setenv("ALLOWED_ORIGINS", tt.allowedOrigins)

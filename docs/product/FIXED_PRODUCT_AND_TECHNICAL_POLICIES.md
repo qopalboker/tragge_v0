@@ -1,7 +1,7 @@
 # Tragge — Fixed Product and Technical Policies
 
 **Status:** Approved baseline for production implementation  
-**Policy version:** `2026-07-29.1`  
+**Policy version:** `2026-08-01.1`
 **Canonical timezone for scheduling:** `Asia/Tehran`  
 **Canonical storage timezone:** UTC  
 **Technical language:** English  
@@ -936,6 +936,12 @@ User-selectable crypto gateways:
 
 - Plisio
 - NOWPayments
+
+Payment4 is retired effective 2026-08-01 under
+[product decision PAYMENT4-RETIREMENT-2026-08-01](payment4-retirement-policy-amendment.md).
+It is not selectable, configurable, callable, or production-supported. Its
+routes, credentials, provider adapter, and startup requirements must remain
+absent. This decision adds no replacement provider.
 
 Supported deposit methods:
 

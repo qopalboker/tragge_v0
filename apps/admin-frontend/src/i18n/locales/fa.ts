@@ -333,9 +333,6 @@ export default {
     bankGateway: 'درگاه بانکی',
     bankGatewayDesc: 'پرداخت از طریق درگاه بانکی (ریال)',
     cryptoPayment: 'ارز دیجیتال',
-    payment4: 'Payment4',
-    payment4Desc: 'پرداخت با ارز دیجیتال از طریق Payment4',
-    payment4CurrencyNote: 'ارز پرداخت در صفحه پرداخت انتخاب می‌شود',
     selectCrypto: 'انتخاب ارز دیجیتال',
     amount: 'مبلغ',
     amountUSD: 'مبلغ (دلار)',
@@ -1936,7 +1933,6 @@ export default {
     providers: {
       jibit: 'جیبیت',
       nowpayments: 'NowPayments',
-      payment4: 'Payment4',
     },
   },
 

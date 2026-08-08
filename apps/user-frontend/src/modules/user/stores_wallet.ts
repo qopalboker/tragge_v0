@@ -10,9 +10,8 @@ import {
   type FiatDepositResponse,
   type WalletCryptoDepositResponse,
   type WalletWithdrawRequest,
-  type PayoutStatus,
-  type KYCStatusResponse,
-  type CryptoProvider,
+	type PayoutStatus,
+	type KYCStatusResponse,
 } from '@/api';
 
 export const useWalletStore = defineStore('wallet', () => {
@@ -186,20 +185,18 @@ export const useWalletStore = defineStore('wallet', () => {
   }
 
   /**
-   * Create crypto deposit (NOWPayments or Payment4)
+	 * Create crypto deposit through the active crypto gateway.
    */
-  async function createCryptoDeposit(
-    amount_cents: number,
-    pay_currency: string = 'usdttrc20',
-    provider?: CryptoProvider,
-    currency?: string
-  ): Promise<WalletCryptoDepositResponse | null> {
+	async function createCryptoDeposit(
+		amount_cents: number,
+		pay_currency: string = 'usdttrc20'
+	): Promise<WalletCryptoDepositResponse | null> {
     loading.value = true;
     error.value = null;
     errorCode.value = null;
 
     try {
-      return await walletApi.createCryptoDeposit(amount_cents, pay_currency, provider, currency);
+		return await walletApi.createCryptoDeposit(amount_cents, pay_currency);
     } catch (err: unknown) {
       handleWalletError(err, 'Failed to create crypto deposit');
       return null;

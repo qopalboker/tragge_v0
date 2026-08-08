@@ -836,7 +836,6 @@ function handleWalletApiError(err: unknown): never {
 // ==================== Wallet API Functions ====================
 
 export type FiatProvider = 'jibit';
-export type CryptoProvider = 'nowpayments' | 'payment4';
 
 async function getWallet(): Promise<Wallet> {
   try {
@@ -893,19 +892,11 @@ async function getExchangeRate(): Promise<ExchangeRateResponse> {
 }
 
 async function createWalletCryptoDeposit(
-  amount_cents: number,
-  pay_currency: string = 'usdttrc20',
-  provider: CryptoProvider = 'nowpayments',
-  currency?: string
+	amount_cents: number,
+	pay_currency: string = 'usdttrc20'
 ): Promise<WalletCryptoDepositResponse> {
-  try {
-    const body: Record<string, unknown> = { amount_cents };
-    if (provider === 'payment4') {
-      body.provider = 'payment4';
-      body.currency = currency || 'USD';
-    } else {
-      body.pay_currency = pay_currency;
-    }
+	try {
+		const body: Record<string, unknown> = { amount_cents, pay_currency };
     const response = await api.post<WalletCryptoDepositResponse>('/api/payments/deposit/crypto/create', body);
     return response.data;
   } catch (err) {

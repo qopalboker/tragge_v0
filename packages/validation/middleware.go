@@ -1,9 +1,14 @@
 package validation
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"errors"
+	"io"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -204,9 +209,6 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 		// Prevent MIME type sniffing
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 
-		// Enable XSS filter (for older browsers)
-		w.Header().Set("X-XSS-Protection", "1; mode=block")
-
 		// Prevent clickjacking
 		w.Header().Set("X-Frame-Options", "DENY")
 
@@ -217,15 +219,17 @@ func SecurityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
 
 		// HSTS — only when request is over HTTPS (behind TLS termination or direct)
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
+		if IsSecureRequest(r) {
 			w.Header().Set("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
 		}
+		w.Header().Set("Cross-Origin-Opener-Policy", "same-origin")
+		w.Header().Set("Cross-Origin-Resource-Policy", "same-site")
 
 		// Cache control and CSP for API responses
 		if isAPIRequest(r) {
 			w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, private")
 			w.Header().Set("Pragma", "no-cache")
-			w.Header().Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+			w.Header().Set("Content-Security-Policy", "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'")
 		}
 
 		next.ServeHTTP(w, r)
@@ -244,19 +248,80 @@ func isAPIRequest(r *http.Request) bool {
 // MaxBytesReader wraps the request body with a size limit.
 // Returns an error handler if the body is too large.
 func MaxBytesMiddleware(maxBytes int64) func(http.Handler) http.Handler {
+	if maxBytes < 1024 || maxBytes > 64*1024*1024 {
+		panic("request body limit must be between 1 KiB and 64 MiB")
+	}
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.ContentLength > maxBytes {
+			if r.ContentLength < -1 || r.ContentLength > maxBytes {
 				WriteError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Request body too large")
 				return
 			}
+			if len(r.TransferEncoding) > 1 || (len(r.TransferEncoding) == 1 && !strings.EqualFold(r.TransferEncoding[0], "chunked")) {
+				WriteError(w, http.StatusBadRequest, "TRANSFER_ENCODING_INVALID", "Invalid request framing")
+				return
+			}
 
-			// Wrap the body with a max bytes reader
-			r.Body = http.MaxBytesReader(w, r.Body, maxBytes)
+			if r.Body != nil {
+				bounded := http.MaxBytesReader(w, r.Body, maxBytes+1)
+				body, err := io.ReadAll(bounded)
+				_ = bounded.Close()
+				var tooLarge *http.MaxBytesError
+				if errors.As(err, &tooLarge) || int64(len(body)) > maxBytes {
+					WriteError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Request body too large")
+					return
+				}
+				if err != nil {
+					WriteBadRequest(w, "invalid request body")
+					return
+				}
+				r.Body = io.NopCloser(bytes.NewReader(body))
+				r.ContentLength = int64(len(body))
+			}
 
 			next.ServeHTTP(w, r)
 		})
 	}
+}
+
+// ContentTypeMiddleware permits only the bounded request encodings used by the
+// Platform API. Empty bodies need no Content-Type.
+func ContentTypeMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !isStateChangingMethod(r.Method) || r.ContentLength == 0 {
+			next.ServeHTTP(w, r)
+			return
+		}
+		mediaType := strings.ToLower(strings.TrimSpace(strings.Split(r.Header.Get("Content-Type"), ";")[0]))
+		switch mediaType {
+		case "application/json", "application/x-www-form-urlencoded", "multipart/form-data", "application/octet-stream":
+			next.ServeHTTP(w, r)
+		default:
+			WriteError(w, http.StatusUnsupportedMediaType, "CONTENT_TYPE_UNSUPPORTED", "Unsupported request content type")
+		}
+	})
+}
+
+// DecodeJSON decodes one bounded JSON value and turns MaxBytesReader overflow
+// into the canonical 413 response. Handlers can adopt it incrementally without
+// duplicating edge-policy error details.
+func DecodeJSON(w http.ResponseWriter, r *http.Request, dst interface{}) error {
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(dst); err != nil {
+		var tooLarge *http.MaxBytesError
+		if errors.As(err, &tooLarge) {
+			WriteError(w, http.StatusRequestEntityTooLarge, "PAYLOAD_TOO_LARGE", "Request body too large")
+			return err
+		}
+		WriteBadRequest(w, "invalid request body")
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		WriteBadRequest(w, "request body must contain one JSON value")
+		return errors.New("multiple JSON values")
+	}
+	return nil
 }
 
 // ===========================================

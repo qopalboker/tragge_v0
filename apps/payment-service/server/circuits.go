@@ -17,7 +17,6 @@ const (
 	DepRedis           = "redis"
 	DepNowPayments     = "nowpayments"
 	DepJibit           = "jibit"
-	DepPayment4        = "payment4"
 )
 
 var (
@@ -39,7 +38,6 @@ type CircuitBreakers struct {
 	// Payment provider circuit breakers
 	NowPayments *circuitbreaker.CircuitBreaker
 	Jibit       *circuitbreaker.CircuitBreaker
-	Payment4    *circuitbreaker.CircuitBreaker
 
 	logger *zap.Logger
 }
@@ -92,16 +90,12 @@ func NewCircuitBreakers(cfg CircuitBreakerConfig) *CircuitBreakers {
 	jibitConfig := externalAPICircuitConfig(DepJibit)
 	jibitConfig.OnStateChange = stateChangeHandler
 
-	payment4Config := externalAPICircuitConfig(DepPayment4)
-	payment4Config.OnStateChange = stateChangeHandler
-
 	return &CircuitBreakers{
 		Database:        circuitbreaker.New(dbConfig),
 		DatabaseReplica: circuitbreaker.New(dbReplicaConfig),
 		Redis:           circuitbreaker.New(redisConfig),
 		NowPayments:     circuitbreaker.New(nowPaymentsConfig),
 		Jibit:           circuitbreaker.New(jibitConfig),
-		Payment4:        circuitbreaker.New(payment4Config),
 		logger:          logger,
 	}
 }
@@ -155,11 +149,6 @@ func (cb *CircuitBreakers) ExecuteJibit(ctx context.Context, fn func(ctx context
 	return cb.Jibit.ExecuteWithContext(ctx, fn)
 }
 
-// ExecutePayment4 executes a Payment4 API call with circuit breaker protection.
-func (cb *CircuitBreakers) ExecutePayment4(ctx context.Context, fn func(ctx context.Context) error) error {
-	return cb.Payment4.ExecuteWithContext(ctx, fn)
-}
-
 // IsHealthy returns true if all critical circuit breakers are closed.
 func (cb *CircuitBreakers) IsHealthy() bool {
 	return cb.Database.State() != circuitbreaker.StateOpen
@@ -179,7 +168,6 @@ type CircuitHealth struct {
 	Redis           CircuitStatus `json:"redis"`
 	NowPayments     CircuitStatus `json:"nowpayments"`
 	Jibit           CircuitStatus `json:"jibit"`
-	Payment4        CircuitStatus `json:"payment4"`
 	Overall         string        `json:"overall"`
 	Degraded        bool          `json:"degraded"`
 }
@@ -225,12 +213,6 @@ func (cb *CircuitBreakers) GetHealth() CircuitHealth {
 			Critical:     false,
 			Healthy:      cb.Jibit.State() != circuitbreaker.StateOpen,
 		},
-		Payment4: CircuitStatus{
-			State:        cb.Payment4.State().String(),
-			FailureCount: cb.Payment4.FailureCount(),
-			Critical:     false,
-			Healthy:      cb.Payment4.State() != circuitbreaker.StateOpen,
-		},
 	}
 
 	if cb.IsHealthy() {
@@ -256,6 +238,5 @@ func (cb *CircuitBreakers) Reset() {
 	cb.Redis.Reset()
 	cb.NowPayments.Reset()
 	cb.Jibit.Reset()
-	cb.Payment4.Reset()
 	cb.logger.Info("All circuit breakers reset")
 }

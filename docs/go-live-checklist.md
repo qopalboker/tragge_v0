@@ -64,8 +64,9 @@ This checklist ensures all critical systems, security measures, and operational 
   - [ ] Redis password rotated
   - [ ] TwelveData API key (production)
   - [ ] Massive API key (production)
-  - [ ] Payment4 API key (production)
-  - [ ] Payment4 IPN secret (webhook signature verification)
+  - [ ] NOWPayments API key (production)
+  - [ ] NOWPayments IPN secret (webhook signature verification)
+  - [ ] Jibit API and secret keys (production)
 - [ ] Secret rotation policy established
 
 ### Container Registry
@@ -214,9 +215,10 @@ This checklist ensures all critical systems, security measures, and operational 
 - [ ] All production API keys configured
   - [ ] TwelveData API key (production tier)
   - [ ] Massive API key (production tier)
-  - [ ] Payment4 API key configured
-  - [ ] Payment4 webhook URL registered in Payment4 dashboard (`https://yourdomain.com/webhooks/payment4`)
-  - [ ] Payment4 callback URL registered in Payment4 dashboard (`https://yourdomain.com/payment/result`)
+  - [ ] NOWPayments API key and IPN secret configured
+  - [ ] NOWPayments webhook URL registered as `https://yourdomain.com/webhooks/nowpayments`
+  - [ ] Jibit API and secret keys configured
+  - [ ] Jibit callback URL and source allowlist configured
 - [ ] Database credentials rotated
 - [ ] Redis password set and rotated
 - [ ] Secrets not exposed in logs
@@ -484,26 +486,12 @@ This checklist ensures all critical systems, security measures, and operational 
   - [ ] PnL calculation correct
   - [ ] Rankings correct
   - [ ] Real-time updates working
-- [ ] **Payment4 Crypto Deposit**
-  - [ ] Create Payment4 account at payment4.com
-  - [ ] Generate API key in Payment4 dashboard
-  - [ ] Create Docker secret: `echo "API_KEY" | docker secret create payment4_api_key -`
-  - [ ] Configure webhook URL in Payment4 dashboard: `https://yourdomain.com/webhooks/payment4`
-  - [ ] Configure callback URL in Payment4 dashboard: `https://yourdomain.com/payment/result`
-  - [ ] Set `PAYMENT4_SANDBOX=true` initially for testing
-  - [ ] Switch `PAYMENT4_SANDBOX=false` for production
-  - [ ] Verify webhook connectivity (create test payment, check logs for webhook receipt)
-  - [ ] Verify circuit breaker health: `GET /health/circuits` includes payment4
-  - [ ] Monitor `payment4_payments_created_total` metric
-  - [ ] Test full flow: create payment → pay on Payment4 → verify wallet credit
-  - [ ] Verify deposit confirmation email sent after successful payment
-
-### Payment4 Rollback
-If Payment4 needs to be disabled:
-- Remove `PAYMENT4_API_KEY` env var / Docker secret to disable Payment4 provider
-- Existing payment4 intents will be expired by the expiry worker (no manual cleanup needed)
-- No database rollback needed (`payment4` is just a text value in the `provider` column)
-- NowPayments and Jibit continue to function independently
+- [ ] **Remaining payment providers**
+  - [ ] NOWPayments signature, freshness, and replay fixtures pass
+  - [ ] Jibit request authentication and callback allowlist fixtures pass
+  - [ ] Provider circuit health reports only configured active providers
+  - [ ] Deposit confirmation email is sent after successful payment
+  - [ ] Remaining providers initialize independently
 
 ### Admin Panel
 - [ ] Admin login working

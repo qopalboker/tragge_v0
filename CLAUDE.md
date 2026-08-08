@@ -589,42 +589,21 @@ Payment processing service for deposits and withdrawals.
 **Providers:**
 - **Jibit** - Iranian payment gateway (deposit, withdrawal, refund/reverse)
 - **NowPayments** - Cryptocurrency payments
-- **Payment4** - Cryptocurrency payments (hosted payment page, user selects crypto on Payment4 site)
 
 **Endpoints:**
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/payments/deposit/crypto/create` | Create crypto deposit (nowpayments or payment4) |
+| POST | `/api/payments/deposit/crypto/create` | Create crypto deposit (nowpayments) |
 | POST | `/api/payments/deposit/fiat/create` | Create fiat deposit (jibit) |
 | GET | `/api/payments/deposit/{id}/status` | Check deposit status |
 | GET | `/api/payments/status/{purchaseId}` | Check status by provider payment ID |
 | GET | `/api/payments/estimate` | Get crypto conversion estimate (nowpayments only) |
 | POST | `/webhooks/nowpayments` | NowPayments IPN webhook |
-| POST | `/webhooks/payment4` | Payment4 IPN webhook |
 | POST | `/callback/jibit` | Jibit payment callback (redirect + webhook) |
-
-**Payment4 Webhook (`POST /webhooks/payment4`):**
-- Body: JSON with `paymentUid`, `amount`, `currency`, `status`, `network`, `txHash`, `cryptoAmount`, `cryptoCurrency`
-- Headers: `X-Payment4-Signature` (optional HMAC-SHA256 over canonicalized JSON body using `PAYMENT4_IPN_SECRET`)
-- Response: `200 OK`
-- Signature verification is optional — if header is absent, webhook is processed with a warning log. Server-side verification via `GetPaymentStatus` provides the critical security layer.
-
-**Payment4 Deposit (`POST /api/payments/deposit/crypto/create`):**
-- Body: `{ "amount_cents": 1000, "provider": "payment4", "currency": "USD" }`
-- When provider is `payment4`, `pay_currency` is not needed (user selects crypto on Payment4's hosted payment page)
-- Response: `{ "payment_intent_id": "...", "payment_url": "https://...", "status": "pending" }`
-
-**Payment4 Configuration:**
-| Variable | Description |
-|----------|-------------|
-| `PAYMENT4_API_KEY` | API key from Payment4 dashboard (Docker secret) |
-| `PAYMENT4_IPN_SECRET` | Webhook signature secret (Docker secret, optional) |
-| `PAYMENT4_BASE_URL` | API base URL (auto-set based on sandbox mode) |
-| `PAYMENT4_SANDBOX` | Enable sandbox mode for testing (`true`/`false`) |
 
 **Features:**
 - Deposit and withdrawal processing with multiple payment providers
-- Webhook handling for payment provider callbacks (IP whitelist + amount verification for Jibit, HMAC-SHA256 for Payment4)
+- Webhook handling for payment provider callbacks (IP whitelist and amount verification for Jibit; signature, freshness, and replay verification for NOWPayments)
 - Transaction history and reporting
 - KYC verification integration
 - Circuit breaker pattern for provider failover
@@ -1019,7 +998,6 @@ kubectl get all -n tragge
 | `/api/leaderboard/*` | leaderboard-worker | Leaderboard API |
 | `/api/shards/*` | shard-router | Shard API |
 | `/webhooks/*` | payment-service | Webhook callbacks |
-| `/webhooks/payment4` | payment-service | Payment4 crypto webhook callbacks |
 | `/callback/jibit` | payment-service | Jibit payment callbacks |
 | `/ws/trade` | trade-bff:8082 | Trading WebSocket |
 | `/ws/tournaments` | trade-bff:8082 | Tournament feed WebSocket |
@@ -1078,9 +1056,6 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4317
 NOTIFICATION_ENABLED=false
 RESEND_FROM_EMAIL=onboarding@resend.dev
 
-# Payment4 (crypto payments)
-PAYMENT4_SANDBOX=true      # Enable sandbox mode for testing
-
 # CORS
 ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5174,http://localhost:5175
 ```
@@ -1092,7 +1067,7 @@ ALLOWED_ORIGINS=http://localhost:5173,http://localhost:5174,http://localhost:517
 - `RESEND_API_KEY`, `DISCORD_WEBHOOK_URL`
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`
 - `JIBIT_API_KEY`, `JIBIT_SECRET_KEY`, `JIBIT_KYC_API_KEY`, `JIBIT_KYC_SECRET_KEY`
-- `PAYMENT4_API_KEY`, `PAYMENT4_IPN_SECRET`
+- `NOWPAYMENTS_API_KEY`, `NOWPAYMENTS_IPN_SECRET`
 - `NOBITEX_TOKEN`
 - `S3_ACCESS_KEY`, `S3_SECRET_KEY`
 - `TOTP_ENCRYPTION_KEY`

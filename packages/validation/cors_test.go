@@ -23,9 +23,8 @@ func TestCORSWildcardCredentials(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
-	// Origin should be reflected
-	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "https://evil.com" {
-		t.Errorf("expected origin reflected, got %q", got)
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("unsafe CORS configuration status=%d want=%d", rec.Code, http.StatusServiceUnavailable)
 	}
 	// Credentials header should NOT be set for wildcard match
 	if got := rec.Header().Get("Access-Control-Allow-Credentials"); got != "" {
@@ -75,6 +74,9 @@ func TestCORSUnmatchedOrigin(t *testing.T) {
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("unmatched origin status=%d want=%d", rec.Code, http.StatusForbidden)
+	}
 	if got := rec.Header().Get("Access-Control-Allow-Origin"); got != "" {
 		t.Errorf("expected no CORS headers for unmatched origin, got %q", got)
 	}
@@ -95,6 +97,8 @@ func TestCORSPreflightRequest(t *testing.T) {
 
 	req := httptest.NewRequest("OPTIONS", "/test", nil)
 	req.Header.Set("Origin", "https://app.example.com")
+	req.Header.Set("Access-Control-Request-Method", "POST")
+	req.Header.Set("Access-Control-Request-Headers", "Content-Type")
 	rec := httptest.NewRecorder()
 	handler.ServeHTTP(rec, req)
 

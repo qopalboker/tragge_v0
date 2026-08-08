@@ -14,8 +14,8 @@ import (
 
 	"github.com/Parsaeffatravesh/tragge/apps/payment-service/providers"
 	"github.com/Parsaeffatravesh/tragge/packages/auth"
-	"github.com/Parsaeffatravesh/tragge/packages/wallet/exchangerate"
 	"github.com/Parsaeffatravesh/tragge/packages/validation"
+	"github.com/Parsaeffatravesh/tragge/packages/wallet/exchangerate"
 	"github.com/google/uuid"
 	"go.uber.org/zap"
 )
@@ -34,7 +34,6 @@ type DepositHandler struct {
 	logger       *zap.Logger
 	config       *DepositConfig
 	circuits     DatabaseCircuitExecutor
-	metrics      PaymentMetricsObserver
 }
 
 // DepositConfig holds configuration for deposit operations
@@ -50,7 +49,7 @@ type DepositConfig struct {
 }
 
 // NewDepositHandler creates a new deposit handler
-func NewDepositHandler(db *sql.DB, registry *providers.ProviderRegistry, exchangeRateSvc *exchangerate.Service, logger *zap.Logger, config *DepositConfig, circuits DatabaseCircuitExecutor, metrics PaymentMetricsObserver) *DepositHandler {
+func NewDepositHandler(db *sql.DB, registry *providers.ProviderRegistry, exchangeRateSvc *exchangerate.Service, logger *zap.Logger, config *DepositConfig, circuits DatabaseCircuitExecutor) *DepositHandler {
 	return &DepositHandler{
 		db:           db,
 		registry:     registry,
@@ -58,7 +57,6 @@ func NewDepositHandler(db *sql.DB, registry *providers.ProviderRegistry, exchang
 		logger:       logger,
 		config:       config,
 		circuits:     circuits,
-		metrics:      metrics,
 	}
 }
 
@@ -67,8 +65,8 @@ type CreateDepositRequest struct {
 	AmountCents    int64  `json:"amount_cents"`
 	AmountUSDCents int64  `json:"amount_usd_cents,omitempty"` // USD amount for fiat gateway (auto-converts to IRR)
 	Currency       string `json:"currency,omitempty"`
-	Provider       string `json:"provider"`                      // nowpayments, jibit
-	PayCurrency    string `json:"pay_currency,omitempty"`        // For crypto: BTC, ETH, etc.
+	Provider       string `json:"provider"`               // nowpayments, jibit
+	PayCurrency    string `json:"pay_currency,omitempty"` // For crypto: BTC, ETH, etc.
 	CustomerPhone  string `json:"customer_phone,omitempty"`
 }
 
@@ -100,35 +98,25 @@ func (h *DepositHandler) HandleCreateCryptoDeposit(w http.ResponseWriter, r *htt
 	if req.Provider == "" {
 		req.Provider = "nowpayments" // Default for backwards compatibility
 	}
-	if req.Provider != "nowpayments" && req.Provider != "payment4" {
-		writeErrorJSON(w, http.StatusBadRequest, "invalid provider, must be nowpayments or payment4")
+	if req.Provider != "nowpayments" {
+		writeErrorJSON(w, http.StatusBadRequest, "invalid crypto payment provider")
 		return
 	}
 
-	// Only validate AllowedCryptoCurrencies when provider is nowpayments.
-	// Payment4 handles currency selection on their hosted payment page.
-	if req.Provider == "nowpayments" {
-		if req.PayCurrency == "" {
-			req.PayCurrency = "usdttrc20"
-		}
-		if _, ok := providers.AllowedCryptoCurrencies[strings.ToLower(req.PayCurrency)]; !ok {
-			writeErrorJSON(w, http.StatusBadRequest, "invalid crypto currency. Supported: USDT TRC20 (usdttrc20), TRX (trx)")
-			return
-		}
-		req.PayCurrency = strings.ToLower(req.PayCurrency)
+	if req.PayCurrency == "" {
+		req.PayCurrency = "usdttrc20"
 	}
+	if _, ok := providers.AllowedCryptoCurrencies[strings.ToLower(req.PayCurrency)]; !ok {
+		writeErrorJSON(w, http.StatusBadRequest, "invalid crypto currency. Supported: USDT TRC20 (usdttrc20), TRX (trx)")
+		return
+	}
+	req.PayCurrency = strings.ToLower(req.PayCurrency)
 
 	h.handleCreateDeposit(w, r, userID, &req)
 }
 
 // HandleGetEstimate handles GET /api/payments/estimate?amount=50&currency=usdttrc20
 func (h *DepositHandler) HandleGetEstimate(w http.ResponseWriter, r *http.Request) {
-	// Payment4 does not support estimates — crypto conversion is handled on their hosted page
-	if r.URL.Query().Get("provider") == "payment4" {
-		writeErrorJSON(w, http.StatusBadRequest, "estimates not supported for payment4 provider")
-		return
-	}
-
 	amountStr := r.URL.Query().Get("amount")
 	currency := r.URL.Query().Get("currency")
 
@@ -340,11 +328,6 @@ func (h *DepositHandler) handleCreateDeposit(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
-	// Record successful payment creation metric
-	if providerType == providers.ProviderPayment4 && h.metrics != nil {
-		h.metrics.OnPayment4Created()
-	}
-
 	// Update payment intent with provider payment ID
 	err = h.circuits.ExecuteDatabase(ctx, func(ctx context.Context) error {
 		_, e := h.db.ExecContext(ctx, `
@@ -460,11 +443,6 @@ func (h *DepositHandler) handleCreateFiatDepositWithConversion(
 
 		writeErrorJSON(w, http.StatusBadGateway, "failed to create payment with provider")
 		return
-	}
-
-	// Record successful payment creation metric
-	if providerType == providers.ProviderPayment4 && h.metrics != nil {
-		h.metrics.OnPayment4Created()
 	}
 
 	// Update payment intent with provider payment ID

@@ -341,9 +341,6 @@ export default {
     bankGateway: 'Bank Gateway',
     bankGatewayDesc: 'Pay via bank transfer (IRR)',
     cryptoPayment: 'Cryptocurrency',
-    payment4: 'Payment4',
-    payment4Desc: 'Pay with crypto via Payment4',
-    payment4CurrencyNote: 'Currency will be selected on the payment page',
     selectCrypto: 'Select Cryptocurrency',
     amount: 'Amount',
     amountUSD: 'Amount (USD)',
@@ -1918,7 +1915,6 @@ export default {
     providers: {
       jibit: 'Jibit',
       nowpayments: 'NowPayments',
-      payment4: 'Payment4',
     },
   },
 

@@ -2,9 +2,9 @@
 
 **Status:** Approved terminology and version baseline
 
-**Catalog version:** `2026-07-29.1`
+**Catalog version:** `2026-08-01.1`
 
-**Date:** 2026-07-29
+**Date:** 2026-08-01
 
 **Scope:** Backend, frontend, SQL, contracts, tests, and technical documentation
 
@@ -195,8 +195,8 @@ being mistaken for an approved target.
 
 | Versioned item | Canonical current or planned identifier | Status | Source and responsible roadmap task |
 |---|---|---|---|
-| Fixed product-policy document | `2026-07-29.1` | current | Approved [fixed policy](FIXED_PRODUCT_AND_TECHNICAL_POLICIES.md), including the Super Admin TOTP deferral amendment. |
-| Production roadmap | `2026-07-29.1` | current | Current [roadmap](../codex/PRODUCTION_ROADMAP_AND_CODEX_TASKS.md), including revised `SEC-004` and planned `SEC-007`. |
+| Fixed product-policy document | `2026-08-01.1` | current | Approved [fixed policy](FIXED_PRODUCT_AND_TECHNICAL_POLICIES.md), including the Super Admin TOTP deferral and [Payment4 retirement](payment4-retirement-policy-amendment.md) decisions. |
+| Production roadmap | `2026-08-01.1` | current | Current [roadmap](../codex/PRODUCTION_ROADMAP_AND_CODEX_TASKS.md), including revised `SEC-004`, the amended `SEC-006` retirement gate, and planned `SEC-007`. |
 | Target architecture ADR | `ADR-0001` | current | Accepted [target runtime architecture](../adr/0001-target-runtime-architecture.md). |
 | Contest policy ruleset | `2026-07-29.1` policy sections 4-7 and 10-12 | current policy; target implementation incomplete | `CON-001` through `CON-005`, `PRIZE-001` through `PRIZE-008`, and `DATA-005` implement the approved rules without inventing a parallel policy ID. |
 | Scheduler Template Version | Not assigned (planned); identity field `schedule_template_version_id` | planned | `CON-005` introduces immutable versions and stores their IDs on generated Contests. |
@@ -212,6 +212,7 @@ being mistaken for an approved target.
 | Outbox/inbox event envelope | Not assigned (planned); envelope schema must use `vN` | planned | ADR-0001 fixes required metadata; `ARCH-006` implements and versions the transactional envelope, ordering, retry, dead-letter, and deduplication behavior. |
 | User/Admin authentication isolation | No public contract version assigned; implemented boundary recorded by `SEC-001` | current implementation | `SEC-001` established separate User/Admin cryptographic, session, cookie, refresh, revocation, and CSRF contexts; later tasks must preserve them. |
 | Sensitive-action reauthentication contract | Not assigned (current local implementation; no public contract version) | current local implementation | `SEC-004` defines and tests password verification and a short-lived actor/session/action/resource-bound opaque grant without implementing login MFA. |
+| Payment-provider retirement decision | `PAYMENT4-RETIREMENT-2026-08-01` | current product decision | Payment4 is retired and has no active contract. `SEC-006` removes the legacy adapter and proves NOWPayments and Jibit remain independent; no replacement provider is approved. |
 | Super Admin MFA contract | Not assigned (planned) | planned; not implemented; not started | `SEC-007` must assign and test any contract/schema versions for TOTP enrollment, login challenge, recovery, session upgrade, audit, production configuration, and frontend flows before paid-production approval. |
 | REST API contracts | Not assigned (planned) | planned | Current endpoints are legacy/unversioned. `ARCH-002` through `ARCH-005` preserve or explicitly version Platform APIs, while `FE-001` generates trading REST types from versioned contracts. |
 | WebSocket contracts | Not assigned (planned) | planned | Current streams are legacy. `FE-001` generates types from versioned contracts and `FE-003` defines sequence/resume/deduplication/reconciliation behavior after `ENG-006` and `MD-001`. |

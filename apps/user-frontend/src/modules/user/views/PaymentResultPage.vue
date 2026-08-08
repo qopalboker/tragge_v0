@@ -36,12 +36,9 @@ const POLL_INTERVAL_MS = 3000;
 onMounted(() => {
   document.documentElement.dir = direction.value;
 
-  const status = route.query.status as string | undefined;
-  const purchaseId = route.query.purchase_id as string | undefined;
-  const paymentUid = route.query.paymentUid as string | undefined;
-
-  // Payment4 uses paymentUid; existing flow uses purchase_id
-  const effectiveId = purchaseId || paymentUid;
+	const status = route.query.status as string | undefined;
+	const purchaseId = route.query.purchase_id as string | undefined;
+	const effectiveId = purchaseId;
 
   if (status === '1' || status === 'PAID' || status === 'CONFIRMED') {
     state.value = 'success';

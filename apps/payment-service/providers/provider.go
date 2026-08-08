@@ -29,7 +29,6 @@ type ProviderType string
 const (
 	ProviderNowPayments ProviderType = "nowpayments"
 	ProviderJibit       ProviderType = "jibit"
-	ProviderPayment4    ProviderType = "payment4"
 )
 
 // PaymentStatus represents the status of a payment
@@ -50,19 +49,19 @@ const (
 // CreatePaymentRequest represents a request to create a payment
 type CreatePaymentRequest struct {
 	// Amount in smallest currency unit (cents for USD, Rials for IRR)
-	AmountCents   int64
-	Currency      string // USD, IRR, etc.
-	UserID        string
-	OrderID       string // Internal order/payment intent ID
-	Description   string
-	CallbackURL   string // Success redirect URL
-	CancelURL     string // Cancel/failure redirect URL
+	AmountCents    int64
+	Currency       string // USD, IRR, etc.
+	UserID         string
+	OrderID        string // Internal order/payment intent ID
+	Description    string
+	CallbackURL    string // Success redirect URL
+	CancelURL      string // Cancel/failure redirect URL
 	IPNCallbackURL string // For crypto webhooks
-	CustomerEmail string
-	CustomerPhone string
+	CustomerEmail  string
+	CustomerPhone  string
 
 	// Crypto-specific fields
-	PayCurrency   string // BTC, ETH, USDT, etc.
+	PayCurrency string // BTC, ETH, USDT, etc.
 }
 
 // CreatePaymentResponse represents the response from creating a payment
@@ -84,8 +83,8 @@ type PaymentStatusResponse struct {
 	Status            PaymentStatus
 	AmountCents       int64
 	Currency          string
-	PaidAmountCents   int64             // Actual amount paid (may differ for crypto)
-	RefNumber         string            // Bank reference number (for fiat)
+	PaidAmountCents   int64  // Actual amount paid (may differ for crypto)
+	RefNumber         string // Bank reference number (for fiat)
 	Metadata          map[string]string
 }
 
@@ -104,20 +103,20 @@ type WebhookEvent struct {
 
 // PayoutRequest represents a request to create a payout
 type PayoutRequest struct {
-	AmountCents     int64
-	Currency        string
-	UserID          string
-	PayoutID        string // Internal payout ID
-	Description     string
+	AmountCents int64
+	Currency    string
+	UserID      string
+	PayoutID    string // Internal payout ID
+	Description string
 
 	// Bank transfer fields (Jibit)
-	BankAccount     string // IBAN or account number
-	BankName        string
-	AccountHolder   string
+	BankAccount   string // IBAN or account number
+	BankName      string
+	AccountHolder string
 
 	// Crypto payout fields (NOWPayments)
-	WalletAddress   string
-	CryptoCurrency  string // BTC, ETH, USDT, etc.
+	WalletAddress  string
+	CryptoCurrency string // BTC, ETH, USDT, etc.
 }
 
 // PayoutResponse represents the response from creating a payout

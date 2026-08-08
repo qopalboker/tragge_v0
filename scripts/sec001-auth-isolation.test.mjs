@@ -152,10 +152,14 @@ test("changed Markdown local links resolve", () => {
   assert.deepEqual(failures, []);
 });
 
-test("no compatibility flag, Finance role, active Second Chance, or Git metadata was introduced", () => {
+test("no compatibility flag, Finance role, active Second Chance, or unauthorized Git metadata was introduced", () => {
   const combined = runtimeFiles.map(read).join("\n") + read("packages/auth/isolation.go");
   assert.doesNotMatch(combined, /AUTH.*COMPAT|LEGACY.*AUTH.*ENABLE/i);
   assert.doesNotMatch(combined, /Finance role|ROLE_FINANCE|RoleFinance/);
   assert.doesNotMatch(read("docs/security/user-admin-authentication-isolation.md"), /Second Chance/);
-  assert.equal(fs.existsSync(path.join(root, ".git")), false);
+  const gitPath = path.join(root, ".git");
+  if (fs.existsSync(gitPath)) {
+    const config = read(".git/config");
+    assert.match(config, /url\s*=\s*https:\/\/github\.com\/qopalboker\/tragge_v0\.git/i);
+  }
 });

@@ -2,6 +2,9 @@ networks:
   platform_net:
     name: platform_net
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.30.0.0/24
 
 volumes:
   postgres_data:
@@ -11,7 +14,16 @@ volumes:
 
 # Shared environment — YAML anchor for ALLOWED_ORIGINS (DRY across 10 services)
 x-common-origins: &common-origins
-  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080,https://localhost:8080,http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://localhost:5173,http://localhost:5174,http://localhost:5175,https://localhost:5173,https://localhost:5174,https://localhost:5175,https://*.app.github.dev}
+  ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080,http://127.0.0.1:8081,http://localhost:8081}
+  USER_CORS_ALLOWED_ORIGINS: ${USER_CORS_ALLOWED_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080}
+  ADMIN_CORS_ALLOWED_ORIGINS: ${ADMIN_CORS_ALLOWED_ORIGINS:-http://127.0.0.1:8081,http://localhost:8081}
+  TRADE_CORS_ALLOWED_ORIGINS: ${TRADE_CORS_ALLOWED_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080}
+  PAYMENT_CORS_ALLOWED_ORIGINS: ${PAYMENT_CORS_ALLOWED_ORIGINS:-http://127.0.0.1:8080,http://localhost:8080}
+  TRUSTED_PROXY_CIDRS: ${TRUSTED_PROXY_CIDRS:-172.30.0.0/24}
+  EDGE_MAX_BODY_BYTES: ${EDGE_MAX_BODY_BYTES:-1048576}
+  EDGE_MAX_UPLOAD_BYTES: ${EDGE_MAX_UPLOAD_BYTES:-36700160}
+  EDGE_MAX_HEADER_BYTES: ${EDGE_MAX_HEADER_BYTES:-16384}
+  PAYMENT_WEBHOOK_MAX_AGE: ${PAYMENT_WEBHOOK_MAX_AGE:-5m}
 
 # Docker Secrets for sensitive data
 # Create files in ./secrets/ directory before starting
@@ -66,11 +78,6 @@ secrets:
     file: ./secrets/jibit_kyc_api_key.txt
   jibit_kyc_secret_key:
     file: ./secrets/jibit_kyc_secret_key.txt
-  # Payment4 crypto gateway secrets
-  payment4_api_key:
-    file: ./secrets/payment4_api_key.txt
-  payment4_ipn_secret:
-    file: ./secrets/payment4_ipn_secret.txt
   # OAuth provider secrets
   google_client_id:
     file: ./secrets/google_client_id.txt
@@ -335,13 +342,6 @@ services:
       JIBIT_SECRET_KEY_FILE: /run/secrets/jibit_secret_key
       JIBIT_CALLBACK_URL: ${JIBIT_CALLBACK_URL:-https://tragge.com/api/payments/callback/jibit}
       JIBIT_BASE_URL: ${JIBIT_BASE_URL:-https://napi.jibit.ir/ppg/v3}
-      # payment-service: Payment4
-      PAYMENT4_API_KEY_FILE: /run/secrets/payment4_api_key
-      PAYMENT4_IPN_SECRET_FILE: /run/secrets/payment4_ipn_secret
-      PAYMENT4_CALLBACK_URL: ${PAYMENT4_CALLBACK_URL:-http://127.0.0.1:3000/payment/result}
-      PAYMENT4_WEBHOOK_URL: ${PAYMENT4_WEBHOOK_URL:-http://127.0.0.1:8091/webhooks/payment4}
-      PAYMENT4_BASE_URL: ${PAYMENT4_BASE_URL:-https://api.payment4.com/api/v1}
-      PAYMENT4_SANDBOX: ${PAYMENT4_SANDBOX:-true}
       # payment-service: Webhook/redirect config
       WEBHOOK_BASE_URL: ${WEBHOOK_BASE_URL:-http://127.0.0.1:8091}
       SUCCESS_REDIRECT_URL: ${SUCCESS_REDIRECT_URL:-http://127.0.0.1:8080/payment/result?status=1}
@@ -368,8 +368,6 @@ services:
       - nowpayments_ipn_secret
       - jibit_api_key
       - jibit_secret_key
-      - payment4_api_key
-      - payment4_ipn_secret
       - kavenegar_api_key
       - control_api_key
     volumes:
@@ -729,4 +727,3 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
-

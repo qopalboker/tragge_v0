@@ -40,6 +40,8 @@ import (
 	"go.uber.org/zap"
 )
 
+const userSecurityContext = "user"
+
 // Config holds application configuration.
 type Config struct {
 	Port                string
@@ -143,6 +145,7 @@ type App struct {
 	authLimiter                  *ratelimit.UserRateLimiter    // IP-based limiter for auth endpoints
 	contestJoinLimiter           *ratelimit.UserRateLimiter    // User-based limiter for contest join
 	failedLoginTracker           *failedLoginTracker           // Tracks failed login attempts for progressive delays
+	distributedLoginLockout      *ratelimit.LoginLockout       // Redis-backed IP/account lockout
 	emailVerificationRateLimiter *emailVerificationRateLimiter // Rate limiter for email verification resend requests
 	verifyCodeRateLimiter        *verifyCodeRateLimiter        // Rate limiter for verify-email code attempts
 	passwordChangeRateLimiter    *passwordChangeRateLimiter    // Rate limiter for password change requests
@@ -546,6 +549,10 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		log.Fatal("FATAL: ambiguous security-code environment configuration")
 	}
 	cfg := loadConfig()
+	edgeEnvironment, edgeErr := validation.LoadAndValidateEdgeEnvironment(os.Getenv)
+	if edgeErr != nil {
+		log.Fatal("invalid edge security configuration")
+	}
 	if err := validateSecurityDeliveryConfig(securityEnvironment, cfg); err != nil {
 		log.Fatal("FATAL: invalid security-code delivery configuration")
 	}
@@ -830,6 +837,16 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 			zap.String("bucket", cfg.S3KYCBucket))
 	}
 
+	var distributedLoginLockout *ratelimit.LoginLockout
+	if redisClient != nil {
+		distributedLoginLockout, err = ratelimit.NewLoginLockout(redisClient.UniversalClient, ratelimit.LockoutConfig{
+			Namespace: userSecurityContext, Threshold: 8, LockFor: 15 * time.Minute, Retention: time.Hour,
+		})
+		if err != nil {
+			log.Fatal("invalid User login lockout configuration")
+		}
+	}
+
 	app := &App{
 		pool:                         pool,
 		redis:                        redisClient,
@@ -851,6 +868,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		authLimiter:                  authLimiter,
 		contestJoinLimiter:           contestJoinLimiter,
 		failedLoginTracker:           newFailedLoginTracker(),
+		distributedLoginLockout:      distributedLoginLockout,
 		emailVerificationRateLimiter: newEmailVerificationRateLimiter(),
 		verifyCodeRateLimiter:        newVerifyCodeRateLimiter(),
 		passwordChangeRateLimiter:    newPasswordChangeRateLimiter(),
@@ -910,25 +928,34 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		Repanic: true, // Re-panic after capture so sanitized recovery handles it
 	})
 
+	var edgeRedis redis.UniversalClient
+	if redisClient != nil {
+		edgeRedis = redisClient.UniversalClient
+	}
+	edgePolicy := ratelimit.NewPolicyMiddleware(edgeRedis, ratelimit.PoliciesForService(userSecurityContext), nil, func(class ratelimit.EndpointClass, reason string) {
+		log.Warn("Edge security request denied", zap.String("policy_class", string(class)), zap.String("reason", reason))
+	})
+
 	// Middleware stack (order matters)
-	r.Use(middleware.RealIP)                                         // Get real client IP
 	r.Use(validation.RequestIDMiddleware)                            // Request ID tracking
 	r.Use(validation.CORSMiddleware(validation.UserBFFCORSConfig())) // CORS handling
 	r.Use(validation.CSRFMiddleware(validation.UserBFFCSRFConfig())) // CSRF protection
 	r.Use(validation.SecurityHeadersMiddleware)                      // Security headers
+	r.Use(edgePolicy.Handler)                                        // Distributed edge abuse controls
 	r.Use(auth.RedactSecurityCredentialsForTelemetry)                // Hide session credentials from telemetry
 	r.Use(obs.Middleware.Middleware)                                 // Observability (logging, tracing)
 	r.Use(sentryHandler.Handle)                                      // Sentry panic capture
 	r.Use(auth.RestoreSecurityCredentialsAfterTelemetry)             // Restore secure headers for auth handlers
 	r.Use(obs.Middleware.Recovery)                                   // Sanitized panic recovery
 	r.Use(middleware.Timeout(30 * time.Second))                      // Request timeout
+	r.Use(validation.ContentTypeMiddleware)
 	// Note: MaxBytesMiddleware is applied per-route to allow larger file uploads for KYC
 	r.Use(validation.SanitizeFormMiddleware) // Input sanitization
 
 	// Default body size limit middleware (applied to most routes)
-	defaultBodyLimit := validation.MaxBytesMiddleware(1 * 1024 * 1024) // 1MB
+	defaultBodyLimit := validation.MaxBytesMiddleware(edgeEnvironment.DefaultBodyBytes)
 	// Larger body size limit for file upload routes
-	fileUploadBodyLimit := validation.MaxBytesMiddleware(35 * 1024 * 1024) // 35MB
+	fileUploadBodyLimit := validation.MaxBytesMiddleware(edgeEnvironment.UploadBodyBytes)
 
 	// Health check endpoints (no body limit needed)
 	r.Get("/healthz", app.handleHealthz)
@@ -1056,6 +1083,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		// Protected routes
 		r.Group(func(r chi.Router) {
 			r.Use(app.authMiddleware)
+			r.Use(edgePolicy.ActorHandler)
 			// Short-lived auth ticket for cross-origin navigation
 			r.Post("/auth/ticket", app.handleCreateTicket)
 
@@ -1135,11 +1163,13 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 
 	// Create server
 	srv := &http.Server{
-		Addr:         ":" + cfg.Port,
-		Handler:      r,
-		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 15 * time.Second,
-		IdleTimeout:  60 * time.Second,
+		Addr:              ":" + cfg.Port,
+		Handler:           r,
+		ReadTimeout:       15 * time.Second,
+		ReadHeaderTimeout: 5 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		MaxHeaderBytes:    edgeEnvironment.MaxHeaderBytes,
 	}
 
 	// Start periodic cleanup of expired email verification tokens

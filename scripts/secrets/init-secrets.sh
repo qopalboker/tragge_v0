@@ -120,10 +120,6 @@ create_secret "jibit_secret_key.txt" "" "Jibit PPG secret key"
 create_secret "jibit_kyc_api_key.txt" "" "Jibit KYC API key (optional)"
 create_secret "jibit_kyc_secret_key.txt" "" "Jibit KYC secret key (optional)"
 
-# Payment4 crypto gateway (placeholder - user must provide)
-create_secret "payment4_api_key.txt" "" "Payment4 API key"
-create_secret "payment4_ipn_secret.txt" "" "Payment4 IPN webhook secret (optional)"
-
 # NowPayments crypto gateway (placeholder - user must provide)
 create_secret "nowpayments_api_key.txt" "" "NowPayments API key"
 create_secret "nowpayments_ipn_secret.txt" "" "NowPayments IPN secret (optional)"
@@ -151,7 +147,6 @@ echo "  - massive_api_keys.txt"
 echo ""
 echo "Payment gateways (if using):"
 echo "  - jibit_api_key.txt / jibit_secret_key.txt"
-echo "  - payment4_api_key.txt"
 echo "  - nowpayments_api_key.txt"
 echo ""
 echo "Security-code delivery (required before production startup):"

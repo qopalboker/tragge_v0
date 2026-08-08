@@ -164,7 +164,8 @@ test("current imports match reviewed transitional boundary evidence", () => {
       edge.startsWith("packages/") && edge.split("->")[1].startsWith("apps/"),
   );
   assert.deepEqual(packageToAppEdges, []);
-  // SEC-005 centralizes redaction through approved shared-package imports.
-  assert.equal(rows.length, 495);
+  // SEC-005 centralizes redaction and SEC-006 adds approved in-boundary edge
+  // security imports without changing the module dependency graph.
+  assert.equal(rows.length, 501);
   assert.equal(edges.size, 176);
 });

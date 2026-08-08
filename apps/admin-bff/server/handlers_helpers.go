@@ -1876,6 +1876,18 @@ func (a *App) isIPAllowed(clientIP string) bool {
 func (a *App) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	clientIP := getAdminClientIP(r)
 	userAgent := r.Header.Get("User-Agent")
+	if a.distributedLoginLockout == nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": adminMsg.InternalError})
+		return
+	}
+	if allowed, retryAfter, err := a.distributedLoginLockout.Check(r.Context(), "ip:"+clientIP); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": adminMsg.InternalError})
+		return
+	} else if !allowed {
+		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": adminMsg.TooManyLoginAttempts})
+		return
+	}
 
 	// Check IP whitelist
 	if !a.isIPAllowed(clientIP) {
@@ -1920,6 +1932,15 @@ func (a *App) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	req.Email = validation.SanitizeEmail(req.Email)
 
 	ctx := r.Context()
+	lockoutIdentities := []string{"ip:" + clientIP, "account:" + req.Email}
+	if allowed, retryAfter, err := a.distributedLoginLockout.Check(ctx, lockoutIdentities...); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": adminMsg.InternalError})
+		return
+	} else if !allowed {
+		w.Header().Set("Retry-After", strconv.Itoa(int(retryAfter.Seconds())+1))
+		writeJSON(w, http.StatusTooManyRequests, map[string]string{"error": adminMsg.TooManyLoginAttempts})
+		return
+	}
 
 	// Look up user
 	var userID, passwordHash string
@@ -1935,6 +1956,10 @@ func (a *App) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 			// which emails exist by response latency alone.
 			_ = auth.VerifyPassword(req.Password, auth.DummyHash)
 
+			if _, lockErr := a.distributedLoginLockout.Failure(ctx, lockoutIdentities...); lockErr != nil {
+				writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": adminMsg.InternalError})
+				return
+			}
 			delay := a.failedAdminLoginTracker.recordFailure(clientIP)
 			a.log().Warn("Failed admin login attempt - user not found",
 				zap.String("email", req.Email),
@@ -1972,6 +1997,10 @@ func (a *App) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 
 	// Verify password
 	if err := a.auth.VerifyPassword(req.Password, passwordHash); err != nil {
+		if _, lockErr := a.distributedLoginLockout.Failure(ctx, lockoutIdentities...); lockErr != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": adminMsg.InternalError})
+			return
+		}
 		delay := a.failedAdminLoginTracker.recordFailure(clientIP)
 		a.log().Warn("Failed admin login attempt - invalid password",
 			zap.String("user_id", userID),
@@ -2009,6 +2038,10 @@ func (a *App) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 			zap.String("user_id", userID), zap.String("ip", clientIP), zap.Strings("roles", roles))
 		a.logAuditEvent(ctx, userID, "admin.login.non_admin_attempt", "auth", userID,
 			map[string]string{"email": req.Email, "ip": clientIP, "user_agent": userAgent})
+		if _, lockErr := a.distributedLoginLockout.Failure(ctx, lockoutIdentities...); lockErr != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": adminMsg.InternalError})
+			return
+		}
 		delay := a.failedAdminLoginTracker.recordFailure(clientIP)
 		if delay > 0 {
 			w.Header().Set("Retry-After", strconv.Itoa(int(delay.Seconds())+1))
@@ -2027,6 +2060,10 @@ func (a *App) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	// cryptographic/session context established by SEC-001.
 
 	// Successful login - clear failed attempt tracking
+	if err := a.distributedLoginLockout.Success(ctx, lockoutIdentities...); err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": adminMsg.InternalError})
+		return
+	}
 	a.failedAdminLoginTracker.recordSuccess(clientIP)
 
 	// Generate tokens

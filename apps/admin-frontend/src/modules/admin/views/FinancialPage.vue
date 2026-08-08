@@ -796,11 +796,6 @@ watch([dateRange, customFrom, customTo], () => {
   color: #2E7D32;
 }
 
-.provider-payment4 {
-  background-color: #E3F2FD;
-  color: #1565C0;
-}
-
 /* Buttons */
 .btn {
   padding: var(--spacing-sm) var(--spacing-md);
