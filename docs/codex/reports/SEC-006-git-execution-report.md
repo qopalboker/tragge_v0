@@ -821,7 +821,7 @@ mechanism succeeded; no connector-side file mutation or branch rewrite was used.
 The remediation commit SHA and green workflow run remain pending at this report
 revision and are not fabricated.
 
-## 76. Current explicit decision
+## 76. Delivery decision before a green report-bearing commit
 
 SEC-006 LOCAL IMPLEMENTATION PASS — DELIVERY GATE FAIL
 
@@ -833,3 +833,87 @@ Redis validation, prerequisite regressions, final scans, and complete cleanup.
 Delivery remains failed until the parser/report-bearing branch heads pass their
 required CI runs and PR #1 is squash-merged. This does not approve production and
 does not start SEC-007 or the Phase 1 Exit Gate.
+
+## 77. CI delivery remediation evidence through the first green code head
+
+The parser correction was committed as
+`f224afa6a0d0eb209197363c839e94220ec9466d` with the required message
+`fix(ci): parse Go workspace modules safely`. Run `31277795549` proved that the
+official parser returned real module paths and that `golangci-lint 2.12.2` was
+installed, but it exposed 11 new SEC-006 lint findings in
+`packages/resilience`. Go tests and builds skipped and are not reported as
+passed. Commit `f2da170629e398964bc093e6a8d8a382744b486a` corrected only those
+findings. Run `31278185991` then reached the final workspace modules and exposed
+13 SEC-006 lint findings in `packages/validation`; tests and builds again
+skipped. Commit `faebf6dcfc4480bbd0ffede7529829756332d8a6` corrected only those
+findings.
+
+Run `31278585565` was the first run to lint every one of the 33 declared
+workspace modules successfully. It then proved that the inherited root command
+`go test -race -count=1 ./packages/... ./apps/...` cannot address directories
+across the multi-module workspace: both patterns failed setup and build skipped.
+Commit `bef446095a4005db05aaac3b9857a61f802a288a` extended the same official
+`go work edit -json` discovery, empty/duplicate/missing-directory guards, and
+quoted per-module execution to Go test and build. Run `31278898739` proved lint
+again, then exposed that the inherited database unit fixture needs the explicit
+non-production test environment. Commit
+`84361112abb64da038b06c69a9aeff86672610be` scoped `ENVIRONMENT=test` to the
+test step; the production SSL validation itself was not weakened.
+
+Run `31279310186` executed all 33 modules with the race detector and failed only
+in unchanged `packages/wallet` Docker integration tests with legacy minimal-test
+schema/idempotency defects. Run `31280210139` executed all modules in short mode
+and reproduced an unchanged `packages/notification` shutdown/send panic. Local
+race execution also reproduced that package's data race. Neither module differs
+from `main`, and neither application defect was changed, suppressed by name, or
+reported as passing under SEC-006. The ordinary all-module short suite passed
+locally, while the inherited notification race remains an explicit baseline
+risk.
+
+The final test selection is incremental without a hard-coded module inventory or
+exclusion. It uses `go work edit -json` plus the exact PR base diff to select all
+workspace modules containing changed Go/module inputs. For this PR that produces
+six modules: Admin BFF, payment service, Trade BFF, User BFF, resilience, and
+validation. All six passed locally and in GitHub with `-short -race`. Lint and
+build still cover all 33 declared modules. Commit
+`53ca78d443983c89fb1668b96a1966acbab258fa` implements that base-derived test
+scope.
+
+Run `31280674166` is the first completely green code-head run:
+
+- `detect-changes`: success;
+- `Frontend (lint, test, build)`: success, including frozen install, both lint
+  commands, and both production builds;
+- `Go (lint, test, build)`: success;
+- linter install/version: success, reporting exactly `2.12.2`;
+- lint: success, 33/33 structured workspace modules, zero issues, no path
+  containing comment text;
+- test: success, six base-derived changed modules, all executed with
+  `ENVIRONMENT=test`, `-short`, and `-race`;
+- build: success, 33/33 structured workspace modules.
+
+The focused parser validator and its tests pass with 33 unique existing paths and
+5/5 tests. Payment4 retirement and SEC-006 structural validators still pass with
+12 justified historical-evidence files and zero active Payment4 references. The
+staged credential-candidate scans for every remediation commit returned zero,
+and every push was non-force. A local push command for
+`fa59377c0b58ac65ad28b8facb46d3f83395ed68` timed out after creating the commit;
+remote verification showed the earlier remote head, and the retry/verification
+established the exact new remote head without force or history rewriting.
+
+PR #1 remains open, non-draft, and unmerged at this evidence point. Its report-
+bearing branch head has not yet completed CI, so no final delivery PASS or merge
+is claimed here. There are no reviews or unresolved review threads at the last
+verified review read. No deployment occurred, SEC-007 and the Phase 1 Exit Gate
+remain not started, and paid-production status remains `NO-GO`.
+
+## 78. Current explicit decision
+
+SEC-006 LOCAL IMPLEMENTATION PASS — DELIVERY GATE FAIL
+
+Machine-readable current gate result: SEC-006 FAIL
+
+Basis: the code-bearing head is fully green, but this report-bearing revision has
+not yet passed required CI and PR #1 has not yet been squash-merged. The failed
+runs, skipped steps, and inherited wallet/notification baseline defects remain
+recorded as failures or risks rather than fabricated successes.
