@@ -50,7 +50,7 @@ func exactOrigins(raw string) ([]string, error) {
 // production.
 func LoadAndValidateEdgeEnvironment(getenv func(string) string) (EdgeEnvironment, error) {
 	env := strings.ToLower(strings.TrimSpace(getenv("ENVIRONMENT")))
-	production := env == "" || env == "production" || env == "staging"
+	production := env == "" || env == environmentProduction || env == "staging"
 	defaultBytes, err := parsePositiveBounded(getenv("EDGE_MAX_BODY_BYTES"), 1024*1024, 1024, 8*1024*1024)
 	if err != nil {
 		return EdgeEnvironment{}, err
@@ -74,7 +74,7 @@ func LoadAndValidateEdgeEnvironment(getenv func(string) string) (EdgeEnvironment
 		}
 		if raw == "" && !production {
 			switch context {
-			case "admin":
+			case edgeContextAdmin:
 				raw = "http://127.0.0.1:8081"
 			default:
 				raw = "http://127.0.0.1:8080"
@@ -86,11 +86,11 @@ func LoadAndValidateEdgeEnvironment(getenv func(string) string) (EdgeEnvironment
 		}
 		return origins, parseErr
 	}
-	user, err := readOrigins("user", "USER_FRONTEND_ORIGIN")
+	user, err := readOrigins(edgeContextUser, "USER_FRONTEND_ORIGIN")
 	if err != nil {
 		return EdgeEnvironment{}, err
 	}
-	admin, err := readOrigins("admin", "ADMIN_FRONTEND_ORIGIN")
+	admin, err := readOrigins(edgeContextAdmin, "ADMIN_FRONTEND_ORIGIN")
 	if err != nil {
 		return EdgeEnvironment{}, err
 	}
@@ -105,11 +105,11 @@ func LoadAndValidateEdgeEnvironment(getenv func(string) string) (EdgeEnvironment
 			}
 		}
 	}
-	trade, err := readOrigins("trade", "USER_FRONTEND_ORIGIN")
+	trade, err := readOrigins(edgeContextTrade, "USER_FRONTEND_ORIGIN")
 	if err != nil {
 		return EdgeEnvironment{}, err
 	}
-	payment, err := readOrigins("payment", "USER_FRONTEND_ORIGIN")
+	payment, err := readOrigins(edgeContextPayment, "USER_FRONTEND_ORIGIN")
 	if err != nil {
 		return EdgeEnvironment{}, err
 	}

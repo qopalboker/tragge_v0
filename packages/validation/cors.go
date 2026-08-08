@@ -12,6 +12,14 @@ import (
 
 var errInvalidCORSConfig = errors.New("invalid CORS configuration")
 
+const (
+	edgeContextUser       = "user"
+	edgeContextAdmin      = "admin"
+	edgeContextTrade      = "trade"
+	edgeContextPayment    = "payment"
+	environmentProduction = "production"
+)
+
 // ValidateCORSConfig rejects ambiguous or unsafe origin policy.
 func ValidateCORSConfig(config CORSConfig, production bool) error {
 	if config.AllowCredentials {
@@ -139,17 +147,17 @@ func CORSConfigFromEnv() CORSConfig {
 func corsConfigForContext(context string) CORSConfig {
 	config := CORSConfigFromEnv()
 	contextKeys := map[string]string{
-		"user":    "USER_CORS_ALLOWED_ORIGINS",
-		"admin":   "ADMIN_CORS_ALLOWED_ORIGINS",
-		"trade":   "TRADE_CORS_ALLOWED_ORIGINS",
-		"payment": "PAYMENT_CORS_ALLOWED_ORIGINS",
+		edgeContextUser:    "USER_CORS_ALLOWED_ORIGINS",
+		edgeContextAdmin:   "ADMIN_CORS_ALLOWED_ORIGINS",
+		edgeContextTrade:   "TRADE_CORS_ALLOWED_ORIGINS",
+		edgeContextPayment: "PAYMENT_CORS_ALLOWED_ORIGINS",
 	}
 	key := contextKeys[strings.ToLower(strings.TrimSpace(context))]
 	if origins := strings.TrimSpace(os.Getenv(key)); origins != "" {
 		config.AllowedOrigins = parseCommaSeparated(origins)
 	} else {
 		legacy := "USER_FRONTEND_ORIGIN"
-		if context == "admin" {
+		if context == edgeContextAdmin {
 			legacy = "ADMIN_FRONTEND_ORIGIN"
 		}
 		if origin := strings.TrimSpace(os.Getenv(legacy)); origin != "" {
@@ -176,7 +184,7 @@ func parseCommaSeparated(s string) []string {
 func CORSMiddleware(config CORSConfig) func(http.Handler) http.Handler {
 	production := func() bool {
 		env := strings.ToLower(strings.TrimSpace(os.Getenv("ENVIRONMENT")))
-		return env == "" || env == "production" || env == "staging"
+		return env == "" || env == environmentProduction || env == "staging"
 	}()
 	if err := ValidateCORSConfig(config, production); err != nil {
 		return func(next http.Handler) http.Handler {
@@ -307,12 +315,12 @@ func headersAllowed(allowed []string, requested []string) bool {
 
 // UserBFFCORSConfig returns CORS configuration for user-bff.
 func UserBFFCORSConfig() CORSConfig {
-	return corsConfigForContext("user")
+	return corsConfigForContext(edgeContextUser)
 }
 
 // TradeBFFCORSConfig returns CORS configuration for trade-bff.
 func TradeBFFCORSConfig() CORSConfig {
-	config := corsConfigForContext("trade")
+	config := corsConfigForContext(edgeContextTrade)
 	// trade-bff needs WebSocket upgrade support
 	config.AllowedHeaders = append(config.AllowedHeaders,
 		"Sec-WebSocket-Key",
@@ -327,7 +335,7 @@ func TradeBFFCORSConfig() CORSConfig {
 
 // AdminBFFCORSConfig returns CORS configuration for admin-bff.
 func AdminBFFCORSConfig() CORSConfig {
-	config := corsConfigForContext("admin")
+	config := corsConfigForContext(edgeContextAdmin)
 	// admin-bff can be more restrictive
 	// Only allow admin frontend origin in production (empty ENVIRONMENT = production)
 	if env := os.Getenv("ENVIRONMENT"); env != "development" && env != "local" && env != "test" {
@@ -340,5 +348,5 @@ func AdminBFFCORSConfig() CORSConfig {
 
 // PaymentServiceCORSConfig is intentionally separate from browser BFF policy.
 func PaymentServiceCORSConfig() CORSConfig {
-	return corsConfigForContext("payment")
+	return corsConfigForContext(edgeContextPayment)
 }
