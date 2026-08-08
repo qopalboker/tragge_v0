@@ -72,9 +72,12 @@ test('workflow uses structured discovery and the pinned linter', () => {
     golangci-lint version
     mapfile -t modules < <(go work edit -json | jq -r '.Use[].DiskPath')
     ENVIRONMENT: test
+    TEST_BASE_REF: base-sha
+    git diff --name-only --diff-filter=ACMR "$TEST_BASE_REF...HEAD" -- '*.go'
+    selected_modules=()
     for dir in "\${modules[@]}"; do
-      echo "Testing $dir..."
-      go test -short -count=1 ./...
+      echo "Testing changed module $dir..."
+      go test -short -race -count=1 ./...
     done
     mapfile -t modules < <(go work edit -json | jq -r '.Use[].DiskPath')
     for dir in "\${modules[@]}"; do

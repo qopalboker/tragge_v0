@@ -96,6 +96,7 @@ jobs:
       - name: Test
         env:
           ENVIRONMENT: test
+          TEST_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
           mapfile -t modules < <(go work edit -json | jq -r '.Use[].DiskPath')
 
@@ -104,7 +105,13 @@ jobs:
             exit 1
           fi
 
+          mapfile -t changed_files < <(
+            git diff --name-only --diff-filter=ACMR "$TEST_BASE_REF...HEAD" -- \
+              '*.go' '**/go.mod' '**/go.sum' 'go.work'
+          )
+
           declare -A seen_modules=()
+          selected_modules=()
           for dir in "${modules[@]}"; do
             if [ -n "${seen_modules[$dir]+present}" ]; then
               echo "::error::go.work contains a duplicate workspace module: $dir"
@@ -117,10 +124,25 @@ jobs:
               exit 1
             fi
 
-            echo "Testing $dir..."
+            prefix="${dir#./}/"
+            for file in "${changed_files[@]}"; do
+              if [ "$file" = "go.work" ] || [[ "$file" == "$prefix"* ]]; then
+                selected_modules+=("$dir")
+                break
+              fi
+            done
+          done
+
+          if [ "${#selected_modules[@]}" -eq 0 ]; then
+            echo "::error::no workspace module selected for changed Go inputs"
+            exit 1
+          fi
+
+          for dir in "${selected_modules[@]}"; do
+            echo "Testing changed module $dir..."
             (
               cd "$dir"
-              go test -short -count=1 ./...
+              go test -short -race -count=1 ./...
             )
           done
       - name: Build

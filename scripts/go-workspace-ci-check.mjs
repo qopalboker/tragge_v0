@@ -80,8 +80,11 @@ export function validateWorkflowSource(source) {
     /golangci-lint\/v2\.12\.2\/install\.sh/,
     /sh -s -- -b "\$\(go env GOPATH\)\/bin" v2\.12\.2/,
     /golangci-lint version/,
-    /echo "Testing \$dir\.\.\."/,
-    /go test -short -count=1 \.\/\.\.\./,
+    /TEST_BASE_REF:/,
+    /git diff --name-only --diff-filter=ACMR "\$TEST_BASE_REF\.\.\.HEAD"/,
+    /selected_modules=\(\)/,
+    /echo "Testing changed module \$dir\.\.\."/,
+    /go test -short -race -count=1 \.\/\.\.\./,
     /ENVIRONMENT: test/,
     /echo "Building \$dir\.\.\."/,
     /go build \.\/\.\.\./,
@@ -102,8 +105,8 @@ export function validateWorkflowSource(source) {
   if (/go test -race -count=1/.test(source)) {
     failures.push('CI workflow runs inherited integration suites in the unit/race job');
   }
-  if (/go test -short -race -count=1/.test(source)) {
-    failures.push('CI workflow runs inherited race-sensitive packages in the unit job');
+  if (/packages\/notification/.test(source)) {
+    failures.push('CI workflow hard-codes an unrelated module exclusion or inclusion');
   }
   if (/go build \.\/apps\//.test(source)) {
     failures.push('CI workflow retains hard-coded workspace-root Go build globs');
