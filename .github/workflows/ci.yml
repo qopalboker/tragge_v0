@@ -52,14 +52,46 @@ jobs:
           cache: true
           cache-dependency-path: "**/go.sum"
       - name: Install golangci-lint
-        run: curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/HEAD/install.sh | sh -s -- -b $(go env GOPATH)/bin
+        run: |
+          curl -sSfL \
+            https://raw.githubusercontent.com/golangci/golangci-lint/v2.12.2/install.sh |
+            sh -s -- -b "$(go env GOPATH)/bin" v2.12.2
+          golangci-lint version
       - name: Lint
         env:
           LINT_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
         run: |
-          for dir in $(grep '^\s*\./' go.work | tr -d '\t '); do
+          mapfile -t modules < <(go work edit -json | jq -r '.Use[].DiskPath')
+
+          if [ "${#modules[@]}" -eq 0 ]; then
+            echo "::error::go.work contains no workspace modules"
+            exit 1
+          fi
+
+          declare -A seen_modules=()
+          for dir in "${modules[@]}"; do
+            if [ -n "${seen_modules[$dir]+present}" ]; then
+              echo "::error::go.work contains a duplicate workspace module: $dir"
+              exit 1
+            fi
+            seen_modules["$dir"]=1
+
+            if [ ! -d "$dir" ]; then
+              echo "::error::go.work module directory does not exist: $dir"
+              exit 1
+            fi
+
             echo "Linting $dir..."
-            (cd "$dir" && golangci-lint run --timeout 5m --new-from-rev="$LINT_BASE_REF" ./...) || exit 1
+            if ! (
+              cd "$dir"
+              golangci-lint run \
+                --timeout 5m \
+                --new-from-rev="$LINT_BASE_REF" \
+                ./...
+            ); then
+              echo "::error::golangci-lint failed for workspace module: $dir"
+              exit 1
+            fi
           done
       - name: Test
         run: go test -race -count=1 ./packages/... ./apps/...

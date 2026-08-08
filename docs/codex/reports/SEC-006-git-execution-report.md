@@ -784,12 +784,52 @@ a workaround. Its exact temporary cache was removed and verified absent. The nex
 clean GitHub run is the authoritative final-head evidence and merge remains
 prohibited until it passes.
 
-## 75. Current explicit decision
+Run `30720423625` then cleared the application-module lint findings but failed
+when the inherited text parser transformed the valid documented entry
+`./packages/config // + health` into the nonexistent path
+`./packages/config//+health`. Change detection and the complete frontend job
+passed. Go lint failed; Go tests and Go builds were skipped and are not reported
+as passed. PR #1 remained open, non-draft, and unmerged at
+`79dcc675b785ce980c0b48dd70f5104020ef0b01`, with no reviews or review threads.
 
-SEC-006 PASS
+## 75. Go workspace CI delivery remediation
+
+The unsafe module discovery was:
+
+```bash
+grep '^\s*\./' go.work | tr -d '\t '
+```
+
+It has been replaced with `go work edit -json` as the source of truth and
+`jq -r '.Use[].DiskPath'` feeding a quoted Bash array. The workflow rejects an
+empty array, duplicate modules, missing directories, and the first failed module
+without weakening `--new-from-rev="$LINT_BASE_REF"`. Inline comments in `go.work`
+remain unchanged. The linter installer is pinned to `v2.12.2`, and the workflow
+prints `golangci-lint version` before linting.
+
+Focused validation executes the official Go parser rather than reproducing a
+second module inventory. It passed with 33 structured modules, all unique and
+present. Explicit regressions confirm the exact `./packages/config`,
+`./packages/domain`, `./packages/notification`, `./packages/resilience`, and
+`./packages/wallet` paths and reject `./packages/config//+health`. The focused
+Node test suite passed 5/5. Its first sandbox execution failed with `spawn EPERM`;
+the authorized rerun passed and only that rerun is counted.
+
+The earlier desktop privilege quota prevented the previous invocation from
+writing this tracked-file-only correction. On 2026-08-09 the normal scoped patch
+mechanism succeeded; no connector-side file mutation or branch rewrite was used.
+The remediation commit SHA and green workflow run remain pending at this report
+revision and are not fabricated.
+
+## 76. Current explicit decision
+
+SEC-006 LOCAL IMPLEMENTATION PASS — DELIVERY GATE FAIL
+
+Machine-readable current gate result: SEC-006 FAIL
 
 Basis: successful edge-security implementation, verified Payment4 retirement,
 remaining-provider and webhook security evidence, real isolated PostgreSQL and
 Redis validation, prerequisite regressions, final scans, and complete cleanup.
-This does not approve production and does not start SEC-007 or the Phase 1 Exit
-Gate.
+Delivery remains failed until the parser/report-bearing branch heads pass their
+required CI runs and PR #1 is squash-merged. This does not approve production and
+does not start SEC-007 or the Phase 1 Exit Gate.
