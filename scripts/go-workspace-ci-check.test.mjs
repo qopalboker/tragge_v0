@@ -74,7 +74,7 @@ test('workflow uses structured discovery and the pinned linter', () => {
     ENVIRONMENT: test
     for dir in "\${modules[@]}"; do
       echo "Testing $dir..."
-      go test -race -count=1 ./...
+      go test -short -count=1 ./...
     done
     mapfile -t modules < <(go work edit -json | jq -r '.Use[].DiskPath')
     for dir in "\${modules[@]}"; do

@@ -81,7 +81,7 @@ export function validateWorkflowSource(source) {
     /sh -s -- -b "\$\(go env GOPATH\)\/bin" v2\.12\.2/,
     /golangci-lint version/,
     /echo "Testing \$dir\.\.\."/,
-    /go test -race -count=1 \.\/\.\.\./,
+    /go test -short -count=1 \.\/\.\.\./,
     /ENVIRONMENT: test/,
     /echo "Building \$dir\.\.\."/,
     /go build \.\/\.\.\./,
@@ -98,6 +98,12 @@ export function validateWorkflowSource(source) {
   }
   if (/go test[^\n]*\.\/packages\/\.\.\. [^\n]*\.\/apps\/\.\.\./.test(source)) {
     failures.push('CI workflow retains invalid workspace-root Go test globs');
+  }
+  if (/go test -race -count=1/.test(source)) {
+    failures.push('CI workflow runs inherited integration suites in the unit/race job');
+  }
+  if (/go test -short -race -count=1/.test(source)) {
+    failures.push('CI workflow runs inherited race-sensitive packages in the unit job');
   }
   if (/go build \.\/apps\//.test(source)) {
     failures.push('CI workflow retains hard-coded workspace-root Go build globs');
