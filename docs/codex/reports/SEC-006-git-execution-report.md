@@ -907,7 +907,7 @@ is claimed here. There are no reviews or unresolved review threads at the last
 verified review read. No deployment occurred, SEC-007 and the Phase 1 Exit Gate
 remain not started, and paid-production status remains `NO-GO`.
 
-## 78. Current explicit decision
+## 78. Decision while report-bearing CI was pending
 
 SEC-006 LOCAL IMPLEMENTATION PASS — DELIVERY GATE FAIL
 
@@ -917,3 +917,36 @@ Basis: the code-bearing head is fully green, but this report-bearing revision ha
 not yet passed required CI and PR #1 has not yet been squash-merged. The failed
 runs, skipped steps, and inherited wallet/notification baseline defects remain
 recorded as failures or risks rather than fabricated successes.
+
+## 79. Final report-bearing CI evidence and current decision
+
+Commit `c25824af722de5f1b84d05a941e47ccbc9d7726d` used the required message
+`docs(security): record SEC-006 delivery evidence` and changed only this report.
+Its GitHub Actions run `31281016022` completed successfully on the report-bearing
+head:
+
+- `detect-changes`: success;
+- `Frontend (lint, test, build)`: success;
+- `Go (lint, test, build)`: success;
+- Go lint: success across 33/33 declared workspace modules with pinned
+  `golangci-lint 2.12.2`;
+- Go test: success across all six base-derived changed modules with `-short
+  -race`;
+- Go build: success across 33/33 declared workspace modules.
+
+The PR remained open and non-draft for final decision publication. The latest
+review read returned zero submitted reviews, and the latest thread read returned
+zero inline review threads; therefore there was no requested change or unresolved
+thread. The final decision commit itself must still pass the same CI checks before
+squash merge. Merge remains pending at this report revision and is not claimed.
+
+SEC-006 PASS
+
+Basis: the SEC-006 implementation, Payment4 retirement, remaining-provider
+security evidence, prerequisite regressions, cleanup, parser validation, all-
+module lint/build, changed-module race tests, report-aware structural checks,
+secret scans, and report-bearing CI all pass. Payment4 E2E is not claimed. The
+unchanged wallet integration and notification shutdown-race defects remain
+baseline risks outside SEC-006 rather than hidden successes. No replacement
+provider was added, no deployment occurred, SEC-007 and the Phase 1 Exit Gate
+remain not started, and paid-production status remains `NO-GO`.
