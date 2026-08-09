@@ -370,6 +370,22 @@ browser evidence.
 
 ## 17. Final confirmations
 
+### Gate-report delivery evidence
+
+- Initial report commit:
+  `2e60b8b61da6040d44b3707e9f90a3943f7c232d`.
+- Pull request: [#3](https://github.com/qopalboker/tragge_v0/pull/3), targeting
+  `main` from `codex/phase-1-exit-gate`.
+- Initial report-head CI run: `31290211586`, completed `success`.
+- Change detection passed. Frontend and Go jobs were correctly skipped because
+  the commit changes only gate documentation and the retirement-evidence
+  allowlist; their executed local/SEC task evidence is recorded above.
+- The connector's PR mutation permission returned HTTP 403, so the already
+  authorized Git Credential Manager session created the draft PR without
+  printing its credential.
+- The final delivery decision remains `PHASE 1 FAIL`; successful report CI does
+  not convert the failed security gate into a pass.
+
 - No behavioral remediation was implemented during this gate.
 - No force push or branch-protection bypass occurred.
 - No deployment occurred.
