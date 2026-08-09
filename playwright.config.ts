@@ -14,6 +14,7 @@ import { defineConfig, devices } from '@playwright/test';
 const CI = !!process.env.CI;
 const USER_BASE_URL = process.env.E2E_USER_URL || 'http://localhost:5173';
 const ADMIN_BASE_URL = process.env.E2E_ADMIN_URL || 'http://localhost:5174';
+const SEC007_CHROME_PATH = process.env.SEC007_CHROME_PATH;
 
 export default defineConfig({
   testMatch: '**/*.spec.ts',
@@ -105,6 +106,17 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         baseURL: ADMIN_BASE_URL,
         storageState: './apps/admin-frontend/e2e/.auth/admin.json',
+      },
+    },
+    {
+      name: 'sec007-admin-mfa',
+      testDir: './apps/admin-frontend/e2e',
+      testMatch: 'admin_mfa.spec.ts',
+      use: {
+        ...devices['Desktop Chrome'],
+        baseURL: ADMIN_BASE_URL,
+        launchOptions: SEC007_CHROME_PATH ? { executablePath: SEC007_CHROME_PATH } : undefined,
+        video: 'off',
       },
     },
   ],

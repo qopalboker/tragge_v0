@@ -36,8 +36,9 @@ export const expectedFnd001Counts = Object.freeze({
 // TypeScript files, and one paired legacy compatibility migration. SEC-005 adds
 // eight Go files (four tests) and one TypeScript test. SEC-006 has a final net
 // addition of two Go test files: the provider retirement removes seven active
-// Go files and adds two focused retirement tests. No completed task delta adds
-// Vue files.
+// Go files and adds two focused retirement tests. SEC-007 adds two Go
+// implementation/test pairs in Admin auth, two TypeScript test files, and one
+// paired MFA migration. No completed task delta adds Vue files.
 export const documentedInventoryDeltas = Object.freeze({
   "SEC-001": Object.freeze({ goFiles: 7, goTestFiles: 5 }),
   "SEC-002": Object.freeze({ goFiles: 2, goTestFiles: 1, typeScriptFiles: 2 }),
@@ -47,6 +48,9 @@ export const documentedInventoryDeltas = Object.freeze({
   }),
   "SEC-005": Object.freeze({ goFiles: 8, goTestFiles: 4, typeScriptFiles: 1 }),
   "SEC-006": Object.freeze({ goFiles: 2, goTestFiles: 1 }),
+  "SEC-007": Object.freeze({
+    goFiles: 4, goTestFiles: 2, typeScriptFiles: 2, sqlFiles: 2, upMigrations: 1,
+  }),
 });
 
 export const expectedCurrentCounts = Object.freeze(

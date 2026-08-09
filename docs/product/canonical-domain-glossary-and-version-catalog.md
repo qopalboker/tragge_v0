@@ -2,9 +2,9 @@
 
 **Status:** Approved terminology and version baseline
 
-**Catalog version:** `2026-08-01.1`
+**Catalog version:** `2026-08-09.1`
 
-**Date:** 2026-08-01
+**Date:** 2026-08-09
 
 **Scope:** Backend, frontend, SQL, contracts, tests, and technical documentation
 
@@ -148,10 +148,10 @@ permission to infer a number from a legacy artifact.
 | Term | Canonical meaning |
 |---|---|
 | **Support Admin** | The Admin role `SUPPORT_ADMIN`. It may perform only explicitly approved support and KYC operations. It cannot execute Super-Admin-only destructive financial operations and is not a substitute for Super Admin. |
-| **Super Admin** | The privileged Admin role `SUPER_ADMIN`. It alone may execute approved destructive financial operations after the required authorization and fresh password reauthentication. Mandatory login MFA remains a planned paid-production prerequisite under `SEC-007`. |
+| **Super Admin** | The privileged Admin role `SUPER_ADMIN`. It requires the `super_admin_totp_v1` login/session assurance and alone may execute approved destructive financial operations after explicit authorization and fresh password reauthentication. |
 | **Sensitive-Action Password Reauthentication** | Fresh verification of the active Admin actor's password immediately before an action classified as destructive or security-sensitive. `SEC-004` implements this current local control; it is distinct from login MFA and does not prove paid-production readiness. |
 | **Reauthentication Grant** | A short-lived, single-use Admin-context credential produced after Sensitive-Action Password Reauthentication and bound to actor, active session, action, and resource where applicable. It is invalid after replay, expiry, password change, session revocation, or permission change and never appears in a URL or log. |
-| **Super Admin MFA** | Planned `SEC-007` Google-Authenticator-compatible TOTP protection for Super Admin login/session upgrade, including enrollment, encrypted secret storage, replay prevention, recovery, audit, startup validation, frontend flows, and real database/concurrency evidence. It is not implemented or started. |
+| **Super Admin MFA** | The implemented `SEC-007` Admin-only `super_admin_totp_v1` assurance: password-first Google-Authenticator-compatible TOTP enrollment/login, encrypted Admin credential storage, explicit counter replay prevention, single-use recovery codes, audited reset, fail-closed startup validation, and session upgrade only after MFA. |
 ### Messaging, durability, identity, and payment terms
 
 | Term | Canonical meaning |
@@ -184,8 +184,8 @@ These statements are normative shorthand for code review and contract design:
    prize, economics, winner-count, or Official Ranking eligible.
 7. Second Chance is removed and prohibited, not a dormant or planned feature.
 8. Sensitive-Action Password Reauthentication is the `SEC-004` control for
-   privileged actions; Super Admin MFA is the separate planned `SEC-007` login/
-   session-upgrade control required before paid production.
+   privileged actions; Super Admin MFA is the separate implemented `SEC-007`
+   login/session-upgrade control. Both remain required before paid production.
 
 ## Version catalog
 
@@ -195,8 +195,8 @@ being mistaken for an approved target.
 
 | Versioned item | Canonical current or planned identifier | Status | Source and responsible roadmap task |
 |---|---|---|---|
-| Fixed product-policy document | `2026-08-01.1` | current | Approved [fixed policy](FIXED_PRODUCT_AND_TECHNICAL_POLICIES.md), including the Super Admin TOTP deferral and [Payment4 retirement](payment4-retirement-policy-amendment.md) decisions. |
-| Production roadmap | `2026-08-01.1` | current | Current [roadmap](../codex/PRODUCTION_ROADMAP_AND_CODEX_TASKS.md), including revised `SEC-004`, the amended `SEC-006` retirement gate, and planned `SEC-007`. |
+| Fixed product-policy document | `2026-08-09.1` | current | Approved [fixed policy](FIXED_PRODUCT_AND_TECHNICAL_POLICIES.md), including implemented SEC-007 Super Admin MFA and the [Payment4 retirement](payment4-retirement-policy-amendment.md) decision. |
+| Production roadmap | `2026-08-09.1` | current | Current [roadmap](../codex/PRODUCTION_ROADMAP_AND_CODEX_TASKS.md), including completed `SEC-006` and implemented `SEC-007`. |
 | Target architecture ADR | `ADR-0001` | current | Accepted [target runtime architecture](../adr/0001-target-runtime-architecture.md). |
 | Contest policy ruleset | `2026-07-29.1` policy sections 4-7 and 10-12 | current policy; target implementation incomplete | `CON-001` through `CON-005`, `PRIZE-001` through `PRIZE-008`, and `DATA-005` implement the approved rules without inventing a parallel policy ID. |
 | Scheduler Template Version | Not assigned (planned); identity field `schedule_template_version_id` | planned | `CON-005` introduces immutable versions and stores their IDs on generated Contests. |
@@ -213,10 +213,10 @@ being mistaken for an approved target.
 | User/Admin authentication isolation | No public contract version assigned; implemented boundary recorded by `SEC-001` | current implementation | `SEC-001` established separate User/Admin cryptographic, session, cookie, refresh, revocation, and CSRF contexts; later tasks must preserve them. |
 | Sensitive-action reauthentication contract | Not assigned (current local implementation; no public contract version) | current local implementation | `SEC-004` defines and tests password verification and a short-lived actor/session/action/resource-bound opaque grant without implementing login MFA. |
 | Payment-provider retirement decision | `PAYMENT4-RETIREMENT-2026-08-01` | current product decision | Payment4 is retired and has no active contract. `SEC-006` removes the legacy adapter and proves NOWPayments and Jibit remain independent; no replacement provider is approved. |
-| Super Admin MFA contract | Not assigned (planned) | planned; not implemented; not started | `SEC-007` must assign and test any contract/schema versions for TOTP enrollment, login challenge, recovery, session upgrade, audit, production configuration, and frontend flows before paid-production approval. |
+| Super Admin MFA contract | `super_admin_totp_v1` | current implementation | `SEC-007` and the [security contract](../security/super-admin-mfa.md) define/test TOTP enrollment, pre-session challenges, recovery, signed/session assurance, audit, production configuration, migration `0100`, and frontend flows. |
 | REST API contracts | Not assigned (planned) | planned | Current endpoints are legacy/unversioned. `ARCH-002` through `ARCH-005` preserve or explicitly version Platform APIs, while `FE-001` generates trading REST types from versioned contracts. |
 | WebSocket contracts | Not assigned (planned) | planned | Current streams are legacy. `FE-001` generates types from versioned contracts and `FE-003` defines sequence/resume/deduplication/reconciliation behavior after `ENG-006` and `MD-001`. |
-| Database schema/migration baseline | Not assigned (planned); legacy sequence uses `NNNN_name.up/down.sql` | planned | The current 98-up-migration chain is baseline evidence, not a canonical clean schema version. `FND-004` owns the clean baseline identifier, fresh-install command, legacy classification, and rollback policy. |
+| Database schema/migration baseline | Not assigned (planned); legacy sequence uses `NNNN_name.up/down.sql` | planned | The current 100-up-migration chain includes transitional current-runtime migrations and is not a canonical clean schema version. `FND-004` owns the clean baseline identifier, fresh-install command, legacy classification, and rollback policy. |
 
 ## Repository terminology remediation register
 

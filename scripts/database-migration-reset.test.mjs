@@ -79,13 +79,13 @@ function classificationTotals(rows) {
 test("legacy migration filenames, identifiers, order, and pairs are deterministic", () => {
   const up = topLevelMigrationNames(".up.sql");
   const down = topLevelMigrationNames(".down.sql");
-  assert.equal(up.length, 99);
-  assert.equal(down.length, 100);
+  assert.equal(up.length, 100);
+  assert.equal(down.length, 101);
   assert.match(up[0], /^0001_/);
-  assert.match(up.at(-1), /^0099_/);
+  assert.match(up.at(-1), /^0100_/);
   const identifiers = up.map((name) => Number(name.slice(0, 4)));
   assert.equal(new Set(identifiers).size, identifiers.length);
-  assert.deepEqual(identifiers, Array.from({ length: 99 }, (_, index) => index + 1));
+  assert.deepEqual(identifiers, Array.from({ length: 100 }, (_, index) => index + 1));
   const upBases = new Set(up.map((name) => name.replace(".up.sql", "")));
   const pairedDown = down.filter((name) => name !== "0000_baseline.down.sql");
   assert.deepEqual(
@@ -104,10 +104,10 @@ test("legacy migration filenames, identifiers, order, and pairs are deterministi
 test("every legacy up migration is classified exactly once with no unknown row", () => {
   const up = topLevelMigrationNames(".up.sql");
   const rows = manifestRows();
-  assert.equal(rows.length, 99);
-  assert.deepEqual(rows.map((row) => row.order), Array.from({ length: 99 }, (_, index) => index + 1));
+  assert.equal(rows.length, 100);
+  assert.deepEqual(rows.map((row) => row.order), Array.from({ length: 100 }, (_, index) => index + 1));
   assert.deepEqual(rows.map((row) => row.filename), up);
-  assert.equal(new Set(rows.map((row) => row.filename)).size, 99);
+  assert.equal(new Set(rows.map((row) => row.filename)).size, 100);
   for (const row of rows) {
     assert.equal(row.down, "yes");
     assert.ok(row.operation.length > 10);
@@ -122,7 +122,7 @@ test("every legacy up migration is classified exactly once with no unknown row",
   }
   assert.deepEqual(classificationTotals(rows), {
     KEEP: 0,
-    FOLD_INTO_BASELINE: 24,
+    FOLD_INTO_BASELINE: 25,
     REPLACE: 57,
     DELETE_AFTER_CUTOVER: 18,
   });

@@ -48,8 +48,15 @@ interface AdminUser {
 }
 
 interface LoginResponse {
-  access_token: string;
+  access_token?: string;
+  mfa_required?: boolean;
+  enrollment_required?: boolean;
+  challenge?: string;
+  expires_at?: string;
+  recovery_codes?: string[];
 }
+
+type MFAStage = 'password' | 'enroll' | 'enroll_verify' | 'verify' | 'recovery_codes';
 
 interface MeResponse {
   user_id: string;
@@ -97,6 +104,11 @@ export const useAuthStore = defineStore('auth', () => {
   const loading = ref(false);
   const error = ref<string | null>(null);
   const ready = ref(false);
+  const mfaStage = ref<MFAStage>('password');
+  const mfaChallenge = ref<string | null>(null);
+  const mfaSecret = ref<string | null>(null);
+  const mfaProvisioningUri = ref<string | null>(null);
+  const recoveryCodes = ref<string[]>([]);
 
   // Admin role + granular permissions sourced from /api/admin/me/permissions.
   const adminRole = ref<string>(''); // 'super_admin' | 'support_admin' | ''
@@ -110,6 +122,10 @@ export const useAuthStore = defineStore('auth', () => {
   const isViewer = computed(() => false);
 
   function hasRole(role: string): boolean {
+    // Protected Admin routes use `admin` as a panel-access capability, not as
+    // an identity role. Identity remains restricted to the canonical
+    // SUPPORT_ADMIN / SUPER_ADMIN roles returned by the Admin API.
+    if (role === 'admin') return isAdminRole.value;
     return user.value?.roles?.includes(role) ?? false;
   }
 
@@ -198,9 +214,13 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null;
 
     try {
-      // Mandatory login TOTP is deferred to SEC-007. Password login remains
-      // inside the isolated Admin trust domain established by SEC-001.
       const response = await api.post<LoginResponse>('/api/admin/auth/login', { email, password });
+      if (response.data.mfa_required && response.data.challenge) {
+        mfaChallenge.value = response.data.challenge;
+        mfaStage.value = response.data.enrollment_required ? 'enroll' : 'verify';
+        return false;
+      }
+      if (!response.data.access_token) throw new Error('authentication response was incomplete');
       setTokens(response.data.access_token);
       await Promise.all([fetchUser(true), fetchPermissions()]);
       toast.success(t('auth.loginSuccess'));
@@ -215,6 +235,70 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  async function startMFAEnrollment(): Promise<boolean> {
+    if (mfaStage.value !== 'enroll' || !mfaChallenge.value) return false;
+    loading.value = true;
+    error.value = null;
+    try {
+      const response = await api.post<{ challenge: string; secret: string; provisioning_uri: string }>(
+        '/api/admin/auth/mfa/enrollment/start',
+        { challenge: mfaChallenge.value },
+      );
+      mfaChallenge.value = response.data.challenge;
+      mfaSecret.value = response.data.secret;
+      mfaProvisioningUri.value = response.data.provisioning_uri;
+      mfaStage.value = 'enroll_verify';
+      return true;
+    } catch (err: unknown) {
+      error.value = getErrorMessage(err, t('auth.mfaError'));
+      return false;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  async function verifyMFA(value: string, recovery = false): Promise<boolean> {
+    if (!mfaChallenge.value || !['enroll_verify', 'verify'].includes(mfaStage.value)) return false;
+    loading.value = true;
+    error.value = null;
+    try {
+      const enrollment = mfaStage.value === 'enroll_verify';
+      const endpoint = enrollment ? '/api/admin/auth/mfa/enrollment/verify' : '/api/admin/auth/mfa/verify';
+      const response = await api.post<LoginResponse>(endpoint, {
+        challenge: mfaChallenge.value,
+        ...(recovery ? { recovery_code: value } : { code: value }),
+      });
+      if (!response.data.access_token) throw new Error('authentication response was incomplete');
+      setTokens(response.data.access_token);
+      recoveryCodes.value = response.data.recovery_codes ?? [];
+      mfaChallenge.value = null;
+      mfaSecret.value = null;
+      mfaProvisioningUri.value = null;
+      mfaStage.value = recoveryCodes.value.length > 0 ? 'recovery_codes' : 'password';
+      await Promise.all([fetchUser(true), fetchPermissions()]);
+      return true;
+    } catch (err: unknown) {
+      error.value = getErrorMessage(err, t('auth.mfaError'));
+      return false;
+    } finally {
+      loading.value = false;
+    }
+  }
+
+  function acknowledgeRecoveryCodes(): void {
+    recoveryCodes.value = [];
+    mfaStage.value = 'password';
+  }
+
+  function cancelMFA(): void {
+    mfaStage.value = 'password';
+    mfaChallenge.value = null;
+    mfaSecret.value = null;
+    mfaProvisioningUri.value = null;
+    recoveryCodes.value = [];
+    error.value = null;
+  }
+
   function logout(): void {
     const currentToken = accessToken.value;
 
@@ -222,6 +306,7 @@ export const useAuthStore = defineStore('auth', () => {
     setUser(null);
     adminRole.value = '';
     adminPermissions.value = [];
+    cancelMFA();
 
     if (currentToken) {
       axios
@@ -297,6 +382,10 @@ export const useAuthStore = defineStore('auth', () => {
     loading,
     error,
     ready,
+    mfaStage,
+    mfaSecret,
+    mfaProvisioningUri,
+    recoveryCodes,
     adminRole,
     adminPermissions,
     isAuthenticated,
@@ -305,6 +394,10 @@ export const useAuthStore = defineStore('auth', () => {
     isViewer,
     setTokens,
     login,
+    startMFAEnrollment,
+    verifyMFA,
+    acknowledgeRecoveryCodes,
+    cancelMFA,
     logout,
     fetchUser,
     fetchPermissions,

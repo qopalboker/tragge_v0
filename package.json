@@ -11,6 +11,8 @@
     "test:sec006": "node --test scripts/sec-006-edge-security-check.test.mjs",
     "validate:payment4-retirement": "node scripts/payment4-retirement-check.mjs",
     "test:payment4-retirement": "node --test scripts/payment4-retirement-check.test.mjs",
+    "validate:sec007": "node scripts/sec-007-super-admin-mfa-check.mjs",
+    "test:sec007": "node --test scripts/sec-007-super-admin-mfa-check.test.mjs",
     "dev": "echo 'Run individual frontend apps with pnpm --filter <app> dev'",
     "build": "pnpm -r build",
     "lint": "pnpm -r lint",

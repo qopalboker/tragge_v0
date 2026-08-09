@@ -165,18 +165,31 @@ func (a *Auth) VerifyPassword(password, hash string) error {
 // Login authenticates a user and returns a token pair and session ID.
 // The caller is responsible for verifying the password before calling this.
 func (a *Auth) Login(ctx context.Context, userID string, roles []string, deviceInfo, ipAddress string) (*TokenPair, string, error) {
-	return a.login(ctx, userID, roles, nil, deviceInfo, ipAddress)
+	return a.login(ctx, userID, roles, nil, "", deviceInfo, ipAddress)
 }
 
 // LoginWithPermissions creates a session and returns tokens with permissions embedded.
 func (a *Auth) LoginWithPermissions(ctx context.Context, userID string, roles []string, permissions []string, deviceInfo, ipAddress string) (*TokenPair, string, error) {
-	return a.login(ctx, userID, roles, permissions, deviceInfo, ipAddress)
+	return a.login(ctx, userID, roles, permissions, "", deviceInfo, ipAddress)
+}
+
+// LoginWithPermissionsAndMFA creates an MFA-bound session. Callers must finish
+// authoritative MFA verification before invoking it.
+func (a *Auth) LoginWithPermissionsAndMFA(ctx context.Context, userID string, roles []string, permissions []string, assurance MFAAssurance, deviceInfo, ipAddress string) (*TokenPair, string, error) {
+	if assurance != MFAAssuranceSuperAdminTOTPV1 {
+		return nil, "", ErrInvalidToken
+	}
+	return a.login(ctx, userID, roles, permissions, assurance, deviceInfo, ipAddress)
 }
 
 // login is the shared implementation for Login and LoginWithPermissions.
-func (a *Auth) login(ctx context.Context, userID string, roles []string, permissions []string, deviceInfo, ipAddress string) (*TokenPair, string, error) {
+func (a *Auth) login(ctx context.Context, userID string, roles []string, permissions []string, assurance MFAAssurance, deviceInfo, ipAddress string) (*TokenPair, string, error) {
 	if a.Session == nil {
 		// No session management, just generate tokens
+		if assurance != "" {
+			pair, err := a.Token.GenerateTokenPairWithSessionPermissionsAndMFA(userID, roles, permissions, "", assurance)
+			return pair, "", err
+		}
 		if len(permissions) > 0 {
 			pair, err := a.Token.GenerateTokenPairWithPermissions(userID, roles, permissions)
 			return pair, "", err
@@ -187,10 +200,12 @@ func (a *Auth) login(ctx context.Context, userID string, roles []string, permiss
 
 	// Create session first to get session ID
 	sessionID, err := a.Session.Create(ctx, &Session{
-		UserID:     userID,
-		Roles:      roles,
-		DeviceInfo: deviceInfo,
-		IPAddress:  ipAddress,
+		UserID:       userID,
+		Roles:        roles,
+		Permissions:  permissions,
+		MFAAssurance: assurance,
+		DeviceInfo:   deviceInfo,
+		IPAddress:    ipAddress,
 	})
 	if err != nil {
 		return nil, "", err
@@ -198,8 +213,8 @@ func (a *Auth) login(ctx context.Context, userID string, roles []string, permiss
 
 	// Generate tokens with session ID embedded
 	var pair *TokenPair
-	if len(permissions) > 0 {
-		pair, err = a.Token.GenerateTokenPairWithSessionAndPermissions(userID, roles, permissions, sessionID)
+	if len(permissions) > 0 || assurance != "" {
+		pair, err = a.Token.GenerateTokenPairWithSessionPermissionsAndMFA(userID, roles, permissions, sessionID, assurance)
 	} else {
 		pair, err = a.Token.GenerateTokenPairWithSession(userID, roles, sessionID)
 	}
@@ -245,9 +260,12 @@ func (a *Auth) Refresh(ctx context.Context, sessionID, refreshToken string) (*To
 	if err != nil {
 		return nil, err
 	}
+	if claims.MFAAssurance != session.MFAAssurance {
+		return nil, ErrInvalidToken
+	}
 
 	// Generate new token pair with session ID
-	pair, err := a.Token.GenerateTokenPairWithSession(session.UserID, session.Roles, sessionID)
+	pair, err := a.Token.GenerateTokenPairWithSessionPermissionsAndMFA(session.UserID, session.Roles, session.Permissions, sessionID, session.MFAAssurance)
 	if err != nil {
 		return nil, err
 	}

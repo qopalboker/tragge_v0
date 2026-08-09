@@ -197,8 +197,8 @@ test("collision rules preserve policy meanings", () => {
   assert.match(rows.get("Sensitive-Action Password Reauthentication"), /SEC-004/);
   assert.match(rows.get("Sensitive-Action Password Reauthentication"), /distinct from login MFA/);
   assert.match(rows.get("Reauthentication Grant"), /short-lived, single-use/);
-  assert.match(rows.get("Super Admin MFA"), /Planned `SEC-007`/);
-  assert.match(rows.get("Super Admin MFA"), /not implemented or started/);
+  assert.match(rows.get("Super Admin MFA"), /implemented `SEC-007`/);
+  assert.match(rows.get("Super Admin MFA"), /super_admin_totp_v1/);
 
   assert.match(rows.get("Base Entry Fee"), /20%.*80%/);
   assert.match(rows.get("Late-Entry Surcharge"), /10%/);
@@ -236,8 +236,8 @@ test("version catalog distinguishes current, planned, and legacy versions", () =
   const rows = versionRows(read(glossaryPath));
   assert.deepEqual([...rows.keys()].sort(), [...expectedCatalogItems].sort());
 
-  assert.equal(rows.get("Fixed product-policy document").identifier, "`2026-08-01.1`");
-  assert.equal(rows.get("Production roadmap").identifier, "`2026-08-01.1`");
+  assert.equal(rows.get("Fixed product-policy document").identifier, "`2026-08-09.1`");
+  assert.equal(rows.get("Production roadmap").identifier, "`2026-08-09.1`");
   assert.equal(rows.get("Target architecture ADR").identifier, "`ADR-0001`");
   assert.equal(rows.get("Prize distribution").identifier, "`tralent_v1`");
   assert.equal(rows.get("Market Data event contract").identifier, "`v2`");
@@ -248,6 +248,8 @@ test("version catalog distinguishes current, planned, and legacy versions", () =
   assert.match(rows.get("User/Admin authentication isolation").identifier, /No public contract version assigned/);
   assert.match(rows.get("Sensitive-action reauthentication contract").identifier, /Not assigned/);
   assert.match(rows.get("Sensitive-action reauthentication contract").status, /current local implementation/);
+  assert.equal(rows.get("Super Admin MFA contract").identifier, "`super_admin_totp_v1`");
+  assert.match(rows.get("Super Admin MFA contract").status, /current implementation/);
 
   for (const item of [
     "Scheduler Template Version",
@@ -258,7 +260,6 @@ test("version catalog distinguishes current, planned, and legacy versions", () =
     "Trading Engine command/event contracts",
     "Settlement result snapshot",
     "Outbox/inbox event envelope",
-    "Super Admin MFA contract",
     "REST API contracts",
     "WebSocket contracts",
     "Database schema/migration baseline",

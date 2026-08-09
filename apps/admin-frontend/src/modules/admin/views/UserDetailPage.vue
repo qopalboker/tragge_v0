@@ -8,6 +8,7 @@ import { SensitiveAdminAction, withPasswordReauthentication } from '@/api/reauth
 import {
   getUser,
   updateUserRoles,
+  resetSuperAdminMFA,
   banUser,
   unbanUser,
   terminateUserSessions,
@@ -115,6 +116,26 @@ async function saveRoles(): Promise<void> {
     showRoleModal.value = false;
   } catch {
     toast.error(t('users.rolesUpdateError'));
+  } finally {
+    modalLoading.value = false;
+  }
+}
+
+async function handleResetSuperAdminMFA(): Promise<void> {
+  if (!user.value || !auth.isSuperAdmin || !user.value.roles.includes('super_admin')) return;
+  const reason = window.prompt(t('userDetail.mfaResetReasonPrompt'))?.trim();
+  const password = window.prompt(t('userDetail.mfaResetPasswordPrompt')) || '';
+  if (!reason || !password) return;
+  modalLoading.value = true;
+  try {
+    await withPasswordReauthentication({
+      password,
+      action: SensitiveAdminAction.AdminMFAReset,
+      resourceId: user.value.user.id,
+    }, grant => resetSuperAdminMFA(user.value!.user.id, reason, grant));
+    toast.success(t('userDetail.mfaResetSuccess'));
+  } catch {
+    toast.error(t('userDetail.mfaResetError'));
   } finally {
     modalLoading.value = false;
   }
@@ -394,6 +415,15 @@ onMounted(fetchUser);
             </div>
           </div>
           <div v-if="canEditUsers" class="profile-actions">
+            <button
+              v-if="auth.isSuperAdmin && user.roles.includes('super_admin')"
+              class="btn btn-danger"
+              data-testid="reset-super-admin-mfa"
+              :disabled="modalLoading"
+              @click="handleResetSuperAdminMFA"
+            >
+              {{ t('userDetail.mfaReset') }}
+            </button>
             <button class="btn btn-ghost" @click="openRoleModal">
               {{ t('users.editRoles') }}
             </button>

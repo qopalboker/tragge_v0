@@ -227,6 +227,10 @@ export async function updateUserRoles(userId: string, data: UpdateRolesRequest, 
   await api.patch(`/api/admin/users/${userId}/roles`, data, { headers: reauthenticationHeaders(grant) });
 }
 
+export async function resetSuperAdminMFA(userId: string, reason: string, grant: string): Promise<void> {
+  await api.post(`/api/admin/users/${userId}/mfa/reset`, { reason }, { headers: reauthenticationHeaders(grant) });
+}
+
 export async function updateUserStatus(userId: string, data: UpdateStatusRequest): Promise<void> {
   await api.patch(`/api/admin/users/${userId}/status`, data);
 }

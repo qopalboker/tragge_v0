@@ -33,7 +33,7 @@ node scripts/target-architecture.test.mjs
 
 The classified scan found:
 
-- 500 internal Go import lines (SEC-005 adds sixteen in-boundary imports that
+- 506 internal Go import lines (SEC-005 adds sixteen in-boundary imports that
   route logging through the shared observability package; SEC-006 has a final
   net addition of six in-boundary imports after provider retirement);
 - 176 distinct source-module to target-module pairs;
@@ -51,6 +51,8 @@ edge. SEC-005 adds sixteen import occurrences and seven shared-package edges.
 SEC-006 has a final net addition of six imports for the shared validation and
 rate-limit packages after provider retirement, without adding a new
 source-module to target-module pair.
+SEC-007 adds five in-boundary import occurrences for Admin MFA implementation
+and real runtime tests without adding a source-module to target-module edge.
 `apps/api-server`, `apps/worker`, and `apps/trading-core` now import
 `packages/observability` directly, while `packages/audit`, `packages/config`,
 `packages/notification`, and `packages/resilience` use it for centralized

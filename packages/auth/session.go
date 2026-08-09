@@ -19,15 +19,17 @@ const hashPrefix = "sha256:"
 
 // Session represents a user session stored in Redis.
 type Session struct {
-	ID           string    `json:"id"`
-	UserID       string    `json:"user_id"`
-	RefreshToken string    `json:"refresh_token"`
-	Roles        []string  `json:"roles"`
-	DeviceInfo   string    `json:"device_info"`
-	IPAddress    string    `json:"ip_address"`
-	CreatedAt    time.Time `json:"created_at"`
-	LastSeenAt   time.Time `json:"last_seen_at"`
-	ExpiresAt    time.Time `json:"expires_at"`
+	ID           string       `json:"id"`
+	UserID       string       `json:"user_id"`
+	RefreshToken string       `json:"refresh_token"`
+	Roles        []string     `json:"roles"`
+	Permissions  []string     `json:"permissions,omitempty"`
+	MFAAssurance MFAAssurance `json:"mfa_assurance,omitempty"`
+	DeviceInfo   string       `json:"device_info"`
+	IPAddress    string       `json:"ip_address"`
+	CreatedAt    time.Time    `json:"created_at"`
+	LastSeenAt   time.Time    `json:"last_seen_at"`
+	ExpiresAt    time.Time    `json:"expires_at"`
 }
 
 var (
@@ -78,9 +80,9 @@ func NewSessionStore(config *SessionStoreConfig) *SessionStore {
 	}
 
 	return &SessionStore{
-		redis:             config.Redis,
-		prefix:            prefix,
-		ttl:               ttl,
+		redis:              config.Redis,
+		prefix:             prefix,
+		ttl:                ttl,
 		maxSessionsPerUser: maxSessionsPerUser,
 	}
 }
@@ -203,6 +205,8 @@ func (s *SessionStore) Create(ctx context.Context, session *Session) (string, er
 		"user_id":       session.UserID,
 		"refresh_token": refreshTokenValue,
 		"roles":         strings.Join(session.Roles, ","),
+		"permissions":   strings.Join(session.Permissions, ","),
+		"mfa_assurance": string(session.MFAAssurance),
 		"device_info":   session.DeviceInfo,
 		"ip_address":    session.IPAddress,
 		"created_at":    session.CreatedAt.Unix(),
@@ -238,6 +242,8 @@ func (s *SessionStore) Get(ctx context.Context, sessionID string) (*Session, err
 		UserID:       data["user_id"],
 		RefreshToken: data["refresh_token"],
 		Roles:        splitRoles(data["roles"]),
+		Permissions:  splitRoles(data["permissions"]),
+		MFAAssurance: MFAAssurance(data["mfa_assurance"]),
 		DeviceInfo:   data["device_info"],
 		IPAddress:    data["ip_address"],
 	}
@@ -447,6 +453,8 @@ func (s *SessionStore) GetUserSessions(ctx context.Context, userID string) ([]*S
 			UserID:       data["user_id"],
 			RefreshToken: data["refresh_token"],
 			Roles:        splitRoles(data["roles"]),
+			Permissions:  splitRoles(data["permissions"]),
+			MFAAssurance: MFAAssurance(data["mfa_assurance"]),
 			DeviceInfo:   data["device_info"],
 			IPAddress:    data["ip_address"],
 		}

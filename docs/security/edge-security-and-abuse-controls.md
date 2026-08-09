@@ -111,4 +111,6 @@ Known limitations:
 - full browser E2E depends on the available frontend runtime;
 - Phase 1 Exit Gate has not run.
 
-SEC-007 remains planned and not started. Deferral of Super Admin MFA is not paid-production approval. Paid-production status remains **NO-GO**.
+SEC-007 implements the separate Super Admin MFA control without changing these
+SEC-006 edge policies. This does not approve paid production; paid-production
+status remains **NO-GO**.

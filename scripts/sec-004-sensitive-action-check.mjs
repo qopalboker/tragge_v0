@@ -72,7 +72,8 @@ export function validateSEC004Repository() {
     'actionWithdrawalComplete, withdrawalID, "mandatory_reason_denied"',
   ]));
   failures.push(...requireFragments('apps/admin-bff/server/handlers_helpers.go', [
-    'Mandatory login TOTP is intentionally deferred to SEC-007',
+    'Super Admin password verification establishes only the first factor',
+    'admin_mfa_credentials',
     'LoginWithPermissions',
   ], ['requires_2fa']));
   failures.push(...requireFragments('apps/admin-frontend/src/api/reauthentication.ts', [
@@ -90,7 +91,7 @@ export function validateSEC004Repository() {
     "legacy.name = 'admin'",
   ], ['finance']));
   failures.push(...requireFragments('docs/security/sensitive-action-password-reauthentication.md', [
-    'Mandatory Super Admin MFA is planned, not implemented, and not started under',
+    'requires the Admin-only `super_admin_totp_v1` assurance',
     '`SEC-007`',
     'paid-production status remains `NO-GO`',
   ]));

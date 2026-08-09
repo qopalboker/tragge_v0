@@ -21,6 +21,7 @@ const (
 	actionWalletAdjust          = "wallet.adjust"
 	actionUserRolesUpdate       = "user.roles.update"
 	actionElevatedUserCreate    = "user.create.elevated"
+	actionAdminMFAReset         = "admin.mfa.reset"
 )
 
 type sensitiveActionSpec struct {
@@ -32,6 +33,7 @@ var sensitiveAdminActions = map[string]sensitiveActionSpec{
 	actionWalletAdjust:       {Permission: "users.wallet.charge"},
 	actionUserRolesUpdate:    {Permission: "users.edit"},
 	actionElevatedUserCreate: {Permission: "users.edit"},
+	actionAdminMFAReset:      {Permission: "users.edit"},
 }
 
 type adminSecurityState struct {

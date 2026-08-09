@@ -126,13 +126,17 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 			ctx := r.Context()
 
 			// Check if session exists
-			_, err := m.sessionStore.Get(ctx, claims.SessionID)
+			session, err := m.sessionStore.Get(ctx, claims.SessionID)
 			if err != nil {
 				if errors.Is(err, ErrSessionNotFound) {
 					writeUnauthorized(w, "session not found or expired")
 					return
 				}
 				writeUnauthorized(w, "session validation failed")
+				return
+			}
+			if session.UserID != claims.UserID || session.MFAAssurance != claims.MFAAssurance {
+				writeUnauthorized(w, "session assurance mismatch")
 				return
 			}
 
@@ -155,6 +159,24 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 		}
 
 		next.ServeHTTP(w, r.WithContext(ctx))
+	})
+}
+
+// RequireSuperAdminMFA requires the versioned Admin MFA assurance for every
+// Super Admin token. Support Admin sessions remain governed by their explicit
+// permissions and do not acquire Super Admin authority through this check.
+func (m *Middleware) RequireSuperAdminMFA(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		claims := GetClaims(r.Context())
+		if claims == nil {
+			writeUnauthorized(w, "authentication required")
+			return
+		}
+		if claims.HasRole(RoleSuperAdmin) && claims.MFAAssurance != MFAAssuranceSuperAdminTOTPV1 {
+			writeUnauthorized(w, "additional authentication required")
+			return
+		}
+		next.ServeHTTP(w, r)
 	})
 }
 
@@ -225,7 +247,7 @@ func (m *Middleware) RequireSuperAdminFunc(next http.HandlerFunc) http.HandlerFu
 // RequireAdminAccess requires a canonical Admin-panel role. Deprecated
 // elevated roles fail closed and must be migrated explicitly.
 func (m *Middleware) RequireAdminAccess(next http.Handler) http.Handler {
-	return m.RequireRole(RoleSupportAdmin, RoleSuperAdmin)(next)
+	return m.RequireRole(RoleSupportAdmin, RoleSuperAdmin)(m.RequireSuperAdminMFA(next))
 }
 
 // RequireAdminAccessFunc is a function-based version of RequireAdminAccess.
