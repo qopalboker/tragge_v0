@@ -141,7 +141,6 @@ func (a *App) validateContestRunning(w http.ResponseWriter, ctx context.Context,
 	return true
 }
 
-
 // OrderSubmitRequest represents the request body for order placement
 type OrderSubmitRequest struct {
 	ContestID  string              `json:"contest_id"`

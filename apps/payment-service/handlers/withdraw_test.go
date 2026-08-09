@@ -9,11 +9,11 @@ import (
 // the previous float64 arithmetic (BUG #316).
 func TestWithdrawFeeCalculation(t *testing.T) {
 	tests := []struct {
-		name           string
-		amountCents    int64
-		fixedFeeCents  int64
-		feePercent     float64
-		wantTotalFee   int64
+		name          string
+		amountCents   int64
+		fixedFeeCents int64
+		feePercent    float64
+		wantTotalFee  int64
 	}{
 		{"zero percent", 10000, 100, 0, 100},
 		{"1% of $100", 10000, 0, 1.0, 100},

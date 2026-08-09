@@ -1050,4 +1050,3 @@ func (a *App) getWSMetrics() map[string]string {
 
 	return metrics
 }
-

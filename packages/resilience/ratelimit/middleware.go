@@ -14,12 +14,12 @@ import (
 
 // Middleware provides HTTP middleware for rate limiting.
 type Middleware struct {
-	limiter       RateLimiter
-	keyExtractor  KeyExtractor
-	onLimitHit    LimitHitHandler
-	skipPaths     map[string]bool
-	skipPrefixes  []string
-	limitType     LimitType
+	limiter      RateLimiter
+	keyExtractor KeyExtractor
+	onLimitHit   LimitHitHandler
+	skipPaths    map[string]bool
+	skipPrefixes []string
+	limitType    LimitType
 }
 
 // KeyExtractor extracts the rate limit key from a request.

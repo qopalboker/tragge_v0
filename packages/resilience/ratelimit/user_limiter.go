@@ -509,4 +509,3 @@ func (lb *LeakyBucket) cleanup(threshold time.Duration) {
 		lb.buckets.Delete(key)
 	}
 }
-

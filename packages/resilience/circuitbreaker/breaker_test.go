@@ -874,4 +874,3 @@ func TestHalfOpenRaceCondition(t *testing.T) {
 			maxAllowed, allowed.Load())
 	}
 }
-

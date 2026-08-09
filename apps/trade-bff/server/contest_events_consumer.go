@@ -263,4 +263,3 @@ func (h *Hub) SendContestNotificationToUser(userID string, notification *contrac
 
 	h.SendToUser(userID, wsMsg)
 }
-

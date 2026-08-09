@@ -255,8 +255,8 @@ func TestSymbolFiltering_PerContest(t *testing.T) {
 		"MSFT": true,
 	})
 	hub.contestSymbols.set("contest-finance", map[string]bool{
-		"JPM":  true,
-		"GS":   true,
+		"JPM": true,
+		"GS":  true,
 	})
 
 	// Populate the PriceBook with ticks for all symbols

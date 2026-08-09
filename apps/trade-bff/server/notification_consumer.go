@@ -139,4 +139,3 @@ func (a *App) initNotificationConsumer() error {
 
 	return nil
 }
-

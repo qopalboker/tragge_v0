@@ -12,9 +12,9 @@ import (
 
 // mockExecer captures ExecContext calls for verification.
 type mockExecer struct {
-	mu      sync.Mutex
-	calls   []execCall
-	failAt  int // fail the Nth call (1-indexed), 0 = never fail
+	mu     sync.Mutex
+	calls  []execCall
+	failAt int // fail the Nth call (1-indexed), 0 = never fail
 }
 
 type execCall struct {

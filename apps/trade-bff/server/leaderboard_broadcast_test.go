@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	lru "github.com/hashicorp/golang-lru/v2"
 	"github.com/Parsaeffatravesh/tragge/packages/observability"
+	lru "github.com/hashicorp/golang-lru/v2"
 	"go.uber.org/zap"
 )
 

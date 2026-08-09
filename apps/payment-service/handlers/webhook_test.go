@@ -15,12 +15,12 @@ func TestAmountsMatch(t *testing.T) {
 	}{
 		{"exact match", 5000, 5000, true},
 		{"zero match", 0, 0, true},
-		{"small diff within pct", 5050, 5000, true},            // 1% of 5000 = 50
-		{"small diff over pct", 5051, 5000, false},              // 51 > 50
+		{"small diff within pct", 5050, 5000, true},                       // 1% of 5000 = 50
+		{"small diff over pct", 5051, 5000, false},                        // 51 > 50
 		{"large amount within pct but over cap", 1050000, 1000000, false}, // 1% = 10000 > cap 1000
-		{"large amount within cap", 1000500, 1000000, true},     // 500 < cap 1000
-		{"large amount at cap", 1001000, 1000000, true},         // 1000 = cap
-		{"large amount over cap", 1001001, 1000000, false},      // 1001 > cap
+		{"large amount within cap", 1000500, 1000000, true},               // 500 < cap 1000
+		{"large amount at cap", 1001000, 1000000, true},                   // 1000 = cap
+		{"large amount over cap", 1001001, 1000000, false},                // 1001 > cap
 		{"negative expected", 100, 0, false},
 		{"negative difference within tolerance", 99, 100, true}, // diff=1, 1% of 100=1
 		{"both zero", 0, 0, true},

@@ -65,7 +65,7 @@ type WithdrawRequest struct {
 	DestinationType string `json:"destination_type"` // bank, crypto
 
 	// Bank transfer fields
-	BankAccount   string `json:"bank_account,omitempty"`   // IBAN or account number
+	BankAccount   string `json:"bank_account,omitempty"` // IBAN or account number
 	BankName      string `json:"bank_name,omitempty"`
 	AccountHolder string `json:"account_holder,omitempty"`
 
@@ -363,9 +363,9 @@ func (h *WithdrawHandler) HandleCreateWithdraw(w http.ResponseWriter, r *http.Re
 	destinationJSON, _ := json.Marshal(destinationInfo)
 
 	metadataJSON, _ := json.Marshal(map[string]interface{}{
-		"fee_cents":        feeCents,
-		"gross_amount":     req.AmountCents,
-		"net_amount":       netAmountCents,
+		"fee_cents":    feeCents,
+		"gross_amount": req.AmountCents,
+		"net_amount":   netAmountCents,
 	})
 
 	// Determine provider based on destination type
@@ -493,4 +493,3 @@ func (h *WithdrawHandler) HandleGetWithdrawStatus(w http.ResponseWriter, r *http
 
 	writeJSON(w, http.StatusOK, response)
 }
-

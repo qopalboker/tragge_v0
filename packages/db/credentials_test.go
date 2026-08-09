@@ -93,12 +93,12 @@ func TestCredentialConfigDSN(t *testing.T) {
 
 func TestCredentialConfigDSNWithSpecialChars(t *testing.T) {
 	cfg := CredentialConfig{
-		Host:          "localhost",
-		Port:          "5432",
-		Database:      "app",
-		SSLMode:       "disable",
-		AppUser:       "appuser",
-		AppPassword:   "pass@word#123!",
+		Host:        "localhost",
+		Port:        "5432",
+		Database:    "app",
+		SSLMode:     "disable",
+		AppUser:     "appuser",
+		AppPassword: "pass@word#123!",
 	}
 
 	dsn := cfg.AppDSN()
@@ -118,12 +118,12 @@ func TestCredentialConfigValidate(t *testing.T) {
 		{
 			name: "valid config",
 			cfg: CredentialConfig{
-				Host:         "localhost",
-				Port:         "5432",
-				Database:     "app",
-				SSLMode:      "disable",
-				AppUser:      "app",
-				AppPassword:  "pass",
+				Host:        "localhost",
+				Port:        "5432",
+				Database:    "app",
+				SSLMode:     "disable",
+				AppUser:     "app",
+				AppPassword: "pass",
 			},
 			wantErr: false,
 		},

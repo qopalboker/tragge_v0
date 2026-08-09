@@ -482,16 +482,16 @@ func (h *Hub) sendFullSyncToClientFiltered(client *Client) {
 
 // HubStatusResponse is the JSON response for GET /admin/hub/status.
 type HubStatusResponse struct {
-	TotalConnections  int64                        `json:"total_connections"`
-	ActiveContests    int                          `json:"active_contests"`
-	BroadcastWorkers  int                          `json:"broadcast_workers"`
-	BroadcastInterval string                       `json:"broadcast_interval"`
+	TotalConnections  int64                         `json:"total_connections"`
+	ActiveContests    int                           `json:"active_contests"`
+	BroadcastWorkers  int                           `json:"broadcast_workers"`
+	BroadcastInterval string                        `json:"broadcast_interval"`
 	Contests          map[string]ContestStatusEntry `json:"contests"`
 }
 
 // ContestStatusEntry holds per-contest status info.
 type ContestStatusEntry struct {
-	ClientCount      int `json:"client_count"`
+	ClientCount       int `json:"client_count"`
 	CachedSymbolCount int `json:"cached_symbol_count"` // -1 if not cached
 }
 
@@ -501,7 +501,7 @@ func (h *Hub) GetHubStatus() *HubStatusResponse {
 	contests := make(map[string]ContestStatusEntry, len(h.contestClients))
 	for contestID, clientSet := range h.contestClients {
 		contests[contestID] = ContestStatusEntry{
-			ClientCount:      len(clientSet),
+			ClientCount:       len(clientSet),
 			CachedSymbolCount: h.contestSymbols.count(contestID),
 		}
 	}
@@ -574,4 +574,3 @@ func (cm *ContestMetrics) DeleteContest(contestID string) {
 	}
 	cm.wsConnectionsPerContest.DeleteLabelValues(contestID)
 }
-

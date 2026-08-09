@@ -130,15 +130,15 @@ func (m *Metrics) GetStats() map[string]interface{} {
 		"ws_batch_messages_saved":    m.wsBatchMessagesSaved.Load(),
 		"ws_delta_compression_ratio": float64(m.wsDeltaCompressionRatio.Load()) / 100.0,
 		// MessagePack encoding metrics
-		"ws_msgpack_connections":             m.wsMsgPackConnections.Load(),
-		"ws_json_connections":                m.wsJsonConnections.Load(),
-		"ws_bytes_sent_json_tick_batch":      jsonTickBytes,
-		"ws_bytes_sent_msgpack_tick_batch":   msgpackTickBytes,
-		"ws_bytes_sent_json_state_delta":     jsonStateBytes,
-		"ws_bytes_sent_msgpack_state_delta":  msgpackStateBytes,
-		"ws_bytes_sent_json_other":           m.wsBytesSentJsonOther.Load(),
-		"ws_tick_batch_bandwidth_savings":    tickBandwidthSavings,  // Ratio of bandwidth saved with MessagePack
-		"ws_state_delta_bandwidth_savings":   stateBandwidthSavings, // Ratio of bandwidth saved with MessagePack
+		"ws_msgpack_connections":            m.wsMsgPackConnections.Load(),
+		"ws_json_connections":               m.wsJsonConnections.Load(),
+		"ws_bytes_sent_json_tick_batch":     jsonTickBytes,
+		"ws_bytes_sent_msgpack_tick_batch":  msgpackTickBytes,
+		"ws_bytes_sent_json_state_delta":    jsonStateBytes,
+		"ws_bytes_sent_msgpack_state_delta": msgpackStateBytes,
+		"ws_bytes_sent_json_other":          m.wsBytesSentJsonOther.Load(),
+		"ws_tick_batch_bandwidth_savings":   tickBandwidthSavings,  // Ratio of bandwidth saved with MessagePack
+		"ws_state_delta_bandwidth_savings":  stateBandwidthSavings, // Ratio of bandwidth saved with MessagePack
 		// Critical message metrics
 		"ws_critical_messages_sent": m.wsCriticalMessagesSent.Load(),
 		"ws_critical_queue_full":    m.wsCriticalQueueFull.Load(),
