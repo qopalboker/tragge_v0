@@ -1,388 +1,317 @@
-import { test, expect, Page } from '@playwright/test';
-import { LoginPage, DashboardPage } from './pages';
+import { expect, test as base, type Page } from '@playwright/test';
+
 import { TEST_USERS, generateTestEmail } from '../../../e2e/test-data';
 import { mockApiResponse } from '../../../e2e/fixtures';
+import {
+  SYNTHETIC_OTP_CODE,
+  USER_AUTH_STATE_FILE,
+  createMockAuthState,
+  installCaptchaMock,
+  installMockAuthBackend,
+  sensitiveBrowserValues,
+  type MockAuthState,
+} from './auth-mocks';
+import { DashboardPage, LoginPage } from './pages';
 
-test.describe('User Frontend - Authentication', () => {
-  test.describe('Login', () => {
-    test('should display login form correctly', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.goto();
+type AuthFixtures = {
+  initialSession: boolean;
+  mockAuth: MockAuthState;
+};
 
-      // Verify all form elements are present
-      await expect(loginPage.logo).toBeVisible();
-      await expect(loginPage.loginTitle).toBeVisible();
-      await expect(loginPage.emailInput).toBeVisible();
-      await expect(loginPage.passwordInput).toBeVisible();
-      await expect(loginPage.submitButton).toBeVisible();
-      await expect(loginPage.forgotPasswordLink).toBeVisible();
-      await expect(loginPage.registerLink).toBeVisible();
-      await expect(loginPage.languageToggle).toBeVisible();
-    });
+const test = base.extend<AuthFixtures>({
+  initialSession: [false, { option: true }],
+  mockAuth: async ({ page, initialSession }, use) => {
+    const state = createMockAuthState({ sessionValid: initialSession });
+    await installCaptchaMock(page);
+    await installMockAuthBackend(page, state);
+    await use(state);
 
-    test('should login with valid credentials', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.goto();
+    const output = state.browserOutput.join('\n');
+    if (sensitiveBrowserValues(state).some((value) => output.includes(value))) {
+      throw new Error('browser output contained a controlled sensitive fixture value');
+    }
+  },
+});
 
-      // Mock the API response for login
-      await mockApiResponse(page, '**/api/user/login', {
-        status: 200,
-        body: {
-          access_token: 'mock-jwt-token',
-          refresh_token: 'mock-refresh-token',
-          user: {
-            id: 'user-123',
-            email: TEST_USERS.standard.email,
-            name: TEST_USERS.standard.name,
-          },
-        },
-      });
+async function fillRegistration(page: Page, email: string): Promise<void> {
+  await page.locator('.toggle-link').click();
+  const form = page.locator('.auth-form.signup');
+  await expect(form).toBeVisible();
 
-      // Perform login
-      await loginPage.login(TEST_USERS.standard.email, TEST_USERS.standard.password);
+  const rows = form.locator('.form-row');
+  await rows.nth(0).locator('input').nth(0).fill('Synthetic');
+  await rows.nth(0).locator('input').nth(1).fill('User');
+  await rows.nth(1).locator('select').selectOption('US');
+  await rows.nth(1).locator('input').fill('syntheticuser');
+  await rows.nth(2).locator('input[type="email"]').fill(email);
+  await rows.nth(3).locator('input').nth(0).fill(TEST_USERS.newUser.password);
+  await rows.nth(3).locator('input').nth(1).fill(TEST_USERS.newUser.password);
+  await form.locator('.checkbox-label').nth(0).click();
+  await form.locator('.checkbox-label').nth(1).click();
+  await form.locator('button[type="submit"]').click();
+}
 
-      // Verify navigation to dashboard
-      await expect(page).toHaveURL(/\/user\/(dashboard|$)/);
-    });
+async function enterOtp(page: Page, selector: string): Promise<void> {
+  const inputs = page.locator(selector);
+  await expect(inputs).toHaveCount(6);
+  for (const [index, digit] of [...SYNTHETIC_OTP_CODE].entries()) {
+    await inputs.nth(index).fill(digit);
+  }
+}
 
-    test('should show error message with invalid credentials', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.goto();
+async function completePasswordReset(page: Page): Promise<void> {
+  await page.goto('/user/forgot-password');
+  await page.locator('#identifier').fill(TEST_USERS.standard.email);
+  await page.locator('form button[type="submit"]').click();
+  await expect(page.locator('.otp-container')).toBeVisible();
+  await enterOtp(page, '.otp-container .otp-input');
+  await expect(page.locator('#new-password')).toBeVisible();
+  await page.locator('#new-password').fill('ChangedPassword123!');
+  await page.locator('#confirm-password').fill('ChangedPassword123!');
+  await page.locator('form button[type="submit"]').click();
+  await expect(page.locator('.success-card')).toBeVisible();
+}
 
-      // Mock the API response for failed login
-      await mockApiResponse(page, '**/api/user/login', {
-        status: 401,
-        body: {
-          error: 'Invalid email or password',
-        },
-      });
+test.describe('User authentication module contract', () => {
+  test.use({ storageState: { cookies: [], origins: [] } });
 
-      // Attempt login with wrong password
-      await loginPage.login(TEST_USERS.standard.email, 'wrongpassword');
+  test('loads shared ESM helpers and both User page objects', async ({ page }) => {
+    expect(LoginPage).toBeDefined();
+    expect(DashboardPage).toBeDefined();
+    expect(typeof mockApiResponse).toBe('function');
+    expect(generateTestEmail('module-contract')).toMatch(
+      /^module-contract-[^-]+-[a-z0-9]+@example\.com$/,
+    );
+    expect(new LoginPage(page)).toBeInstanceOf(LoginPage);
+    expect(new DashboardPage(page)).toBeInstanceOf(DashboardPage);
+  });
+});
 
-      // Verify error message is displayed
-      await expect(loginPage.errorMessage).toBeVisible();
-      const errorText = await loginPage.getErrorMessage();
-      expect(errorText).toBeTruthy();
-    });
+test.describe('Anonymous User authentication journeys', () => {
+  test.use({
+    storageState: { cookies: [], origins: [] },
+    initialSession: false,
+  });
 
-    test('should toggle password visibility', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.goto();
+  test('displays the current User login form', async ({ page }) => {
+    const loginPage = new LoginPage(page);
+    await loginPage.goto();
 
-      // Initially password should be hidden
-      await expect(loginPage.passwordInput).toHaveAttribute('type', 'password');
+    await expect(loginPage.logo).toBeVisible();
+    await expect(loginPage.loginTitle).toBeVisible();
+    await expect(loginPage.emailInput).toBeVisible();
+    await expect(loginPage.passwordInput).toBeVisible();
+    await expect(loginPage.submitButton).toBeVisible();
+    await expect(loginPage.forgotPasswordLink).toBeVisible();
+    await expect(loginPage.registerLink).toBeVisible();
+    await expect(loginPage.languageToggle).toBeVisible();
+  });
 
-      // Click toggle to show password
-      await loginPage.togglePasswordVisibility();
-      await expect(loginPage.passwordInput).toHaveAttribute('type', 'text');
+  test('logs in through the current User endpoint and reaches the dashboard', async ({
+    page,
+    mockAuth,
+  }) => {
+    const loginPage = new LoginPage(page);
+    await loginPage.goto();
+    await loginPage.loginAndWaitForDashboard(
+      TEST_USERS.standard.email,
+      TEST_USERS.standard.password,
+    );
 
-      // Click toggle again to hide password
-      await loginPage.togglePasswordVisibility();
-      await expect(loginPage.passwordInput).toHaveAttribute('type', 'password');
-    });
-
-    test('should disable submit button when form is empty', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.goto();
-
-      // Submit button should be disabled initially
-      const isEnabled = await loginPage.isSubmitEnabled();
-      expect(isEnabled).toBe(false);
-    });
-
-    test('should enable submit button when form is filled', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.goto();
-
-      // Fill in the form
-      await loginPage.fillEmail(TEST_USERS.standard.email);
-      await loginPage.fillPassword(TEST_USERS.standard.password);
-
-      // Submit button should be enabled
-      const isEnabled = await loginPage.isSubmitEnabled();
-      expect(isEnabled).toBe(true);
-    });
-
-    test('should show loading state during login', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.goto();
-
-      // Mock slow API response
-      await page.route('**/api/user/login', async (route) => {
-        await new Promise((resolve) => setTimeout(resolve, 1000));
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            access_token: 'mock-token',
-            refresh_token: 'mock-refresh',
-          }),
-        });
-      });
-
-      // Fill form and submit
-      await loginPage.fillEmail(TEST_USERS.standard.email);
-      await loginPage.fillPassword(TEST_USERS.standard.password);
-      await loginPage.submit();
-
-      // Check for loading state
-      await expect(loginPage.loadingSpinner).toBeVisible();
+    await expect(page.locator('main')).toBeVisible();
+    expect(mockAuth.loginRequests).toHaveLength(1);
+    expect(mockAuth.loginRequests[0]).toMatchObject({
+      method: 'POST',
+      path: '/api/user/auth/login',
     });
   });
 
-  test.describe('Session Persistence', () => {
-    // Use authenticated state
-    test.use({ storageState: './apps/user-frontend/e2e/.auth/user.json' });
+  test('rejects invalid login without creating a session', async ({ page, mockAuth }) => {
+    const loginPage = new LoginPage(page);
+    await loginPage.goto();
+    await loginPage.login(TEST_USERS.standard.email, 'IncorrectPassword123!');
 
-    test('should persist session after page refresh', async ({ page }) => {
-      const dashboardPage = new DashboardPage(page);
-      await dashboardPage.goto();
+    await expect(loginPage.errorMessage).toBeVisible();
+    await expect(page).toHaveURL(/\/user\/login/);
+    expect(mockAuth.sessionValid).toBe(false);
+  });
 
-      // Verify we're on the dashboard
-      await expect(dashboardPage.mainContent).toBeVisible();
+  test('preserves password visibility and form validation behavior', async ({ page }) => {
+    const loginPage = new LoginPage(page);
+    await loginPage.goto();
 
-      // Refresh the page
-      await page.reload();
+    expect(await loginPage.isSubmitEnabled()).toBe(false);
+    await loginPage.fillEmail('invalid-email');
+    await loginPage.fillPassword(TEST_USERS.standard.password);
+    expect(await loginPage.emailInput.evaluate((input: HTMLInputElement) => input.validity.valid)).toBe(false);
+    await loginPage.fillEmail(TEST_USERS.standard.email);
+    expect(await loginPage.isSubmitEnabled()).toBe(true);
+    await expect(loginPage.passwordInput).toHaveAttribute('type', 'password');
+    await loginPage.togglePasswordVisibility();
+    await expect(page.locator('.auth-form:not(.signup) input[type="text"]')).toHaveValue(
+      TEST_USERS.standard.password,
+    );
+  });
 
-      // Should still be on dashboard (not redirected to login)
-      await expect(page).not.toHaveURL(/\/login/);
-      await expect(dashboardPage.mainContent).toBeVisible();
+  test('toggles the login page into Persian RTL mode', async ({ page }) => {
+    const loginPage = new LoginPage(page);
+    await loginPage.goto();
+    await page.locator('.lang-btn', { hasText: 'FA' }).click();
+    expect(await loginPage.isRtl()).toBe(true);
+  });
+
+  test('registers with the current contract and opens email ownership verification', async ({
+    page,
+    mockAuth,
+  }) => {
+    const email = generateTestEmail('registration');
+    await page.goto('/user/login');
+    await fillRegistration(page, email);
+
+    await expect(page.locator('.method-card .email-icon')).toBeVisible();
+    expect(mockAuth.registrationRequests).toHaveLength(1);
+    expect(mockAuth.registrationRequests[0]).toMatchObject({
+      method: 'POST',
+      path: '/api/user/auth/register',
     });
-
-    test('should redirect to login after logout', async ({ page }) => {
-      const dashboardPage = new DashboardPage(page);
-      await dashboardPage.goto();
-
-      // Mock logout API
-      await mockApiResponse(page, '**/api/user/logout', {
-        status: 200,
-        body: { message: 'Logged out successfully' },
-      });
-
-      // Perform logout
-      await dashboardPage.logout();
-
-      // Should be redirected to login
-      await expect(page).toHaveURL(/\/login/);
+    expect(mockAuth.registrationRequests[0].body).toMatchObject({
+      email,
+      country: 'US',
+      agree_terms: true,
+      age_confirm: true,
     });
   });
 
-  test.describe('Logout Flow', () => {
-    test.use({ storageState: './apps/user-frontend/e2e/.auth/user.json' });
+  test('verifies registration email ownership through the current OTP contract', async ({
+    page,
+    mockAuth,
+  }) => {
+    await page.goto('/user/login');
+    await fillRegistration(page, generateTestEmail('email-ownership'));
 
-    test('should logout and clear session', async ({ page }) => {
-      const dashboardPage = new DashboardPage(page);
-      await dashboardPage.goto();
+    await page.locator('.method-card', { has: page.locator('.email-icon') }).click();
+    await expect(page.locator('.modal-content .otp-group')).toBeVisible();
+    await enterOtp(page, '.modal-content .otp-input');
+    await expect(page.locator('.continue-btn')).toBeVisible();
+    await page.locator('.continue-btn').click();
 
-      // Mock logout API
-      await mockApiResponse(page, '**/api/user/logout', {
-        status: 200,
-        body: { message: 'Logged out' },
-      });
-
-      // Logout
-      await dashboardPage.logout();
-
-      // Verify redirected to login
-      await expect(page).toHaveURL(/\/login/);
-
-      // Try to access protected route
-      await page.goto('/user/dashboard');
-
-      // Should redirect back to login
-      await expect(page).toHaveURL(/\/login/);
-    });
+    await expect(page).toHaveURL(/\/user\/dashboard/);
+    expect(mockAuth.verificationSendRequests).toHaveLength(1);
+    expect(mockAuth.verificationSendRequests[0].body).toEqual({ method: 'email' });
+    expect(mockAuth.verificationRequests).toHaveLength(1);
+    expect(mockAuth.emailVerified).toBe(true);
   });
 
-  test.describe('Password Reset Flow', () => {
-    test('should navigate to forgot password from login page', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.goto();
+  test('requests password reset through the current anti-enumeration flow', async ({
+    page,
+    mockAuth,
+  }) => {
+    await page.goto('/user/forgot-password');
+    await page.locator('#identifier').fill(TEST_USERS.standard.email);
+    await page.locator('form button[type="submit"]').click();
 
-      // Click forgot password link
-      await loginPage.clickForgotPassword();
-
-      await expect(page).toHaveURL(/\/forgot-password/);
+    await expect(page.locator('.otp-container')).toBeVisible();
+    expect(mockAuth.resetRequests[0]).toMatchObject({
+      method: 'POST',
+      path: '/api/user/auth/forgot-password/request',
     });
-
-    test('should show step 1: identifier input', async ({ page }) => {
-      await page.goto('/user/forgot-password');
-
-      // New flow uses text input for username/phone/email
-      const identifierInput = page.locator('#identifier');
-      const submitButton = page.locator('button[type="submit"]');
-
-      await expect(identifierInput).toBeVisible();
-      await expect(submitButton).toBeVisible();
-    });
-
-    test('should submit identifier and move to OTP step', async ({ page }) => {
-      await page.goto('/user/forgot-password');
-
-      // Mock the new OTP request endpoint
-      await mockApiResponse(page, '**/api/user/auth/forgot-password/request', {
-        status: 200,
-        body: {
-          message: 'code sent',
-          reset_token: 'test-reset-token',
-          channel_hint: 'sms',
-          masked_destination: '0912***6789',
-        },
-      });
-
-      // Fill identifier (can be username, phone, or email)
-      await page.locator('#identifier').fill(TEST_USERS.standard.email);
-      await page.locator('button[type="submit"]').click();
-
-      // Should show OTP input (step 2)
-      await expect(page.locator('.otp-container')).toBeVisible();
-    });
-
-    test('should verify OTP and move to password step', async ({ page }) => {
-      await page.goto('/user/forgot-password');
-
-      // Mock step 1
-      await mockApiResponse(page, '**/api/user/auth/forgot-password/request', {
-        status: 200,
-        body: {
-          message: 'code sent',
-          reset_token: 'test-reset-token',
-          channel_hint: 'sms',
-          masked_destination: '0912***6789',
-        },
-      });
-
-      await page.locator('#identifier').fill(TEST_USERS.standard.email);
-      await page.locator('button[type="submit"]').click();
-      await expect(page.locator('.otp-container')).toBeVisible();
-
-      // Mock step 2
-      await mockApiResponse(page, '**/api/user/auth/forgot-password/verify', {
-        status: 200,
-        body: { password_set_token: 'test-set-token' },
-      });
-
-      // Fill OTP digits
-      const otpInputs = page.locator('.otp-input');
-      for (let i = 0; i < 6; i++) {
-        await otpInputs.nth(i).fill(String(i + 1));
-      }
-
-      // Should move to step 3 (new password)
-      await expect(page.locator('#new-password')).toBeVisible();
-    });
-
-    test('should set new password and redirect to login', async ({ page }) => {
-      await page.goto('/user/forgot-password');
-
-      // Mock step 1
-      await mockApiResponse(page, '**/api/user/auth/forgot-password/request', {
-        status: 200,
-        body: {
-          message: 'code sent',
-          reset_token: 'test-reset-token',
-          channel_hint: 'sms',
-          masked_destination: '0912***6789',
-        },
-      });
-
-      await page.locator('#identifier').fill(TEST_USERS.standard.email);
-      await page.locator('button[type="submit"]').click();
-
-      // Mock step 2
-      await mockApiResponse(page, '**/api/user/auth/forgot-password/verify', {
-        status: 200,
-        body: { password_set_token: 'test-set-token' },
-      });
-
-      const otpInputs = page.locator('.otp-input');
-      for (let i = 0; i < 6; i++) {
-        await otpInputs.nth(i).fill(String(i + 1));
-      }
-
-      await expect(page.locator('#new-password')).toBeVisible();
-
-      // Mock step 3
-      await mockApiResponse(page, '**/api/user/auth/forgot-password/reset', {
-        status: 200,
-        body: { message: 'Password reset successful' },
-      });
-
-      // Fill new password and confirm
-      await page.locator('#new-password').fill('NewStr0ng!Pass');
-      await page.locator('#confirm-password').fill('NewStr0ng!Pass');
-      await page.locator('button[type="submit"]').click();
-
-      // Should show success state and redirect to login
-      await expect(page.locator('.success-card, .success-icon')).toBeVisible();
-    });
+    expect(mockAuth.resetRequests[0].body).toHaveProperty('captcha_token');
   });
 
-  test.describe('Language Toggle', () => {
-    test('should toggle language on login page', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.goto();
+  test('verifies reset OTP and displays the new-password step', async ({ page, mockAuth }) => {
+    await page.goto('/user/forgot-password');
+    await page.locator('#identifier').fill(TEST_USERS.standard.email);
+    await page.locator('form button[type="submit"]').click();
+    await enterOtp(page, '.otp-container .otp-input');
 
-      // Get initial language toggle text
-      const initialText = await loginPage.getLanguageToggleText();
-      expect(initialText).toBeTruthy();
-
-      // Toggle language
-      await loginPage.toggleLanguage();
-
-      // Wait for re-render
-      await page.waitForTimeout(300);
-
-      // Language toggle text should change
-      const newText = await loginPage.getLanguageToggleText();
-      expect(newText).not.toBe(initialText);
-    });
-
-    test('should switch to RTL mode for Farsi', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.goto();
-
-      // If starting in English, toggle to Farsi
-      const initialText = await loginPage.getLanguageToggleText();
-      if (initialText?.includes('فارسی')) {
-        await loginPage.toggleLanguage();
-      }
-
-      // Verify RTL mode
-      const isRtl = await loginPage.isRtl();
-      expect(isRtl).toBe(true);
-    });
+    await expect(page.locator('#new-password')).toBeVisible();
+    expect(mockAuth.resetRequests.map((request) => request.path)).toContain(
+      '/api/user/auth/forgot-password/verify',
+    );
   });
 
-  test.describe('Form Validation', () => {
-    test('should validate email format', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.goto();
+  test('completes the password update without putting reset handles in the URL', async ({
+    page,
+    mockAuth,
+  }) => {
+    await completePasswordReset(page);
 
-      // Enter invalid email
-      await loginPage.fillEmail('invalid-email');
-      await loginPage.fillPassword('password123');
-      await loginPage.submit();
+    expect(mockAuth.resetRequests.map((request) => request.path)).toEqual([
+      '/api/user/auth/forgot-password/request',
+      '/api/user/auth/forgot-password/verify',
+      '/api/user/auth/forgot-password/reset',
+    ]);
+    expect(page.url()).not.toMatch(/[?&](?:token|access_token|jwt|reset_token)=/i);
+  });
+});
 
-      // Check for validation (either browser validation or custom)
-      const emailInput = loginPage.emailInput;
-      const isInvalid = await emailInput.evaluate(
-        (el: HTMLInputElement) => !el.validity.valid
-      );
-      expect(isInvalid).toBe(true);
+test.describe('Authenticated User session journeys', () => {
+  test.use({
+    storageState: USER_AUTH_STATE_FILE,
+    initialSession: true,
+  });
+
+  test('refreshes the current User session and preserves it across reload', async ({
+    page,
+    mockAuth,
+  }) => {
+    const dashboard = new DashboardPage(page);
+    await dashboard.goto();
+    await expect(dashboard.mainContent).toBeVisible();
+    expect(mockAuth.refreshRequests).toBe(1);
+
+    await page.reload();
+    await expect(page).toHaveURL(/\/user\/dashboard/);
+    await expect(dashboard.mainContent).toBeVisible();
+    expect(mockAuth.refreshRequests).toBe(2);
+  });
+
+  test('logout clears only the User session and protects the dashboard', async ({
+    page,
+    mockAuth,
+  }) => {
+    const dashboard = new DashboardPage(page);
+    await dashboard.goto();
+    await dashboard.logout();
+
+    await expect(page).toHaveURL(/\/user\/login/);
+    await expect.poll(() => mockAuth.logoutRequests).toBe(1);
+    expect(mockAuth.sessionValid).toBe(false);
+    await page.goto('/user/dashboard');
+    await expect(page).toHaveURL(/\/user\/login/);
+  });
+
+  test('rejects the old User session after password reset completes', async ({
+    browser,
+  }, testInfo) => {
+    const state = createMockAuthState({ sessionValid: true });
+    const baseURL = String(testInfo.project.use.baseURL);
+    const oldSession = await browser.newContext({
+      baseURL,
+      storageState: USER_AUTH_STATE_FILE,
     });
-
-    test('should require password', async ({ page }) => {
-      const loginPage = new LoginPage(page);
-      await loginPage.goto();
-
-      // Enter email but no password
-      await loginPage.fillEmail(TEST_USERS.standard.email);
-
-      // Submit should be disabled or form should not submit
-      const isEnabled = await loginPage.isSubmitEnabled();
-      expect(isEnabled).toBe(false);
+    const resetSession = await browser.newContext({
+      baseURL,
+      storageState: { cookies: [], origins: [] },
     });
+    const oldPage = await oldSession.newPage();
+    const resetPage = await resetSession.newPage();
+
+    try {
+      await installMockAuthBackend(oldPage, state);
+      await installCaptchaMock(resetPage);
+      await installMockAuthBackend(resetPage, state);
+
+      await oldPage.goto('/user/dashboard');
+      await expect(oldPage.locator('main')).toBeVisible();
+      await completePasswordReset(resetPage);
+      expect(state.sessionValid).toBe(false);
+
+      await oldPage.reload();
+      await expect(oldPage).toHaveURL(/\/user\/login/);
+    } finally {
+      await oldSession.close();
+      await resetSession.close();
+    }
   });
 });

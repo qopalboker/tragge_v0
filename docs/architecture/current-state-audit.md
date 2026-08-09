@@ -68,8 +68,10 @@ tests) and one TypeScript file; SEC-004 adds five Go files (three tests), two
 TypeScript files, two SQL files, and one up migration; SEC-005 adds eight Go
 files (four tests) and one TypeScript test; SEC-006 has a final net addition of
 two Go test files after retiring seven active provider Go files and adding two
-retirement tests. The current working tree therefore contains 411 Go files,
-123 Go test files, 184 TypeScript/TSX files, 204 SQL files, and 99 up migrations.
+retirement tests. SEC-007 adds four Go files (two tests), two TypeScript files,
+two SQL files, and one up migration. P1-REM-001 adds one TypeScript Playwright
+mock helper. The current working tree therefore contains 411 Go files, 123 Go
+test files, 187 TypeScript/TSX files, 206 SQL files, and 100 up migrations.
 Vue remains at the approved 211-file snapshot.
 The 99th down migration is
 [`0000_baseline.down.sql`](../../packages/db/migrations/0000_baseline.down.sql),
