@@ -445,4 +445,3 @@ func (bc *BurstController) RetryAfter(key string) time.Duration {
 	}
 	return long
 }
-

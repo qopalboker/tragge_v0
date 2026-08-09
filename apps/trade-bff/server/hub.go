@@ -19,10 +19,10 @@ import (
 // Hub manages all active WebSocket connections
 //
 // Lock ordering (to prevent deadlocks, always acquire in this order):
-//   1. clientsMu
-//   2. contestClientsMu
-//   3. userClientsMu
-//   4. contestSymbols (internal RWMutex)
+//  1. clientsMu
+//  2. contestClientsMu
+//  3. userClientsMu
+//  4. contestSymbols (internal RWMutex)
 type Hub struct {
 	// Registered clients by userID for user-specific messages
 	clients   map[*Client]bool
@@ -66,10 +66,10 @@ type Hub struct {
 	workerPool *BroadcastWorkerPool
 
 	// Configuration
-	broadcastInterval      time.Duration
-	maxSymbolsPerTick      int
-	broadcastWorkers       int // Number of workers for broadcast pool
-	maxConnectionsPerUser  int // P1-1: Max WebSocket connections per user (0 = unlimited)
+	broadcastInterval     time.Duration
+	maxSymbolsPerTick     int
+	broadcastWorkers      int // Number of workers for broadcast pool
+	maxConnectionsPerUser int // P1-1: Max WebSocket connections per user (0 = unlimited)
 
 	// Context for shutdown
 	ctx    context.Context
@@ -87,24 +87,24 @@ func NewHub(priceBook *PriceBook, metrics *Metrics, broadcastInterval time.Durat
 	}
 
 	return &Hub{
-		clients:        make(map[*Client]bool),
-		contestClients: make(map[string]map[*Client]bool),
-		userClients:    make(map[string][]*Client),
-		contestSymbols:       newContestSymbolCache(5 * time.Minute),
-		contestAssetClasses: newContestAssetClassCache(10 * time.Minute),
-		register:             make(chan *Client, 256),
-		unregister:           make(chan *Client, 256),
-		priceBook:            priceBook,
-		metrics:              metrics,
-		batcher:              NewMessageBatcher(maxSymbols, broadcastInterval),
-		deltaEncoder:         NewDeltaEncoder(),
-		workerPool:           NewBroadcastWorkerPool(broadcastWorkers),
-		broadcastInterval:    broadcastInterval,
-		maxSymbolsPerTick:    maxSymbols,
-		broadcastWorkers:     broadcastWorkers,
+		clients:               make(map[*Client]bool),
+		contestClients:        make(map[string]map[*Client]bool),
+		userClients:           make(map[string][]*Client),
+		contestSymbols:        newContestSymbolCache(5 * time.Minute),
+		contestAssetClasses:   newContestAssetClassCache(10 * time.Minute),
+		register:              make(chan *Client, 256),
+		unregister:            make(chan *Client, 256),
+		priceBook:             priceBook,
+		metrics:               metrics,
+		batcher:               NewMessageBatcher(maxSymbols, broadcastInterval),
+		deltaEncoder:          NewDeltaEncoder(),
+		workerPool:            NewBroadcastWorkerPool(broadcastWorkers),
+		broadcastInterval:     broadcastInterval,
+		maxSymbolsPerTick:     maxSymbols,
+		broadcastWorkers:      broadcastWorkers,
 		maxConnectionsPerUser: 3, // P1-1: Default 3 connections per user
-		ctx:                  ctx,
-		cancel:               cancel,
+		ctx:                   ctx,
+		cancel:                cancel,
 	}
 }
 

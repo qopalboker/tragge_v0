@@ -28,7 +28,7 @@ func (a *App) initKafkaConsumers() {
 		kgo.ConsumeTopics(a.config.TicksTopic),
 		kgo.DisableAutoCommit(),
 		// High-throughput consumer settings for tick data
-		kgo.FetchMaxBytes(1024 * 1024 * 10),        // 10MB max fetch (ticks are high volume)
+		kgo.FetchMaxBytes(1024 * 1024 * 10),         // 10MB max fetch (ticks are high volume)
 		kgo.FetchMaxPartitionBytes(1024 * 1024 * 2), // 2MB per partition
 		kgo.FetchMinBytes(1024),                     // Batch more records
 	}
@@ -48,7 +48,7 @@ func (a *App) initKafkaConsumers() {
 		kgo.ConsumerGroup(a.config.ConsumerGroup + "-fills"),
 		kgo.ConsumeTopics(a.config.FillsTopic),
 		kgo.DisableAutoCommit(),
-		kgo.FetchMaxBytes(1024 * 1024 * 5),       // 5MB max fetch
+		kgo.FetchMaxBytes(1024 * 1024 * 5),      // 5MB max fetch
 		kgo.FetchMaxPartitionBytes(1024 * 1024), // 1MB per partition
 	}
 	fillOpts = append(fillOpts, secOpts...)
@@ -67,7 +67,7 @@ func (a *App) initKafkaConsumers() {
 		kgo.ConsumerGroup(a.config.ConsumerGroup + "-positions"),
 		kgo.ConsumeTopics(a.config.PositionsTopic),
 		kgo.DisableAutoCommit(),
-		kgo.FetchMaxBytes(1024 * 1024 * 5),       // 5MB max fetch
+		kgo.FetchMaxBytes(1024 * 1024 * 5),      // 5MB max fetch
 		kgo.FetchMaxPartitionBytes(1024 * 1024), // 1MB per partition
 	}
 	posOpts = append(posOpts, secOpts...)
@@ -124,7 +124,7 @@ func (a *App) initKafkaConsumers() {
 		kgo.ConsumerGroup(a.config.ConsumerGroup + "-pnl"),
 		kgo.ConsumeTopics(a.config.PnLDeltasTopic),
 		kgo.DisableAutoCommit(),
-		kgo.FetchMaxBytes(1024 * 1024 * 5),       // 5MB max fetch
+		kgo.FetchMaxBytes(1024 * 1024 * 5),      // 5MB max fetch
 		kgo.FetchMaxPartitionBytes(1024 * 1024), // 1MB per partition
 		kgo.FetchMinBytes(1),                    // Low latency for real-time updates
 	}
@@ -142,7 +142,7 @@ func (a *App) initKafkaConsumers() {
 	prodOpts := []kgo.Opt{
 		kgo.SeedBrokers(a.config.KafkaBrokers...),
 		kgo.RequiredAcks(kgo.AllISRAcks()),
-		kgo.ProducerLinger(50 * time.Millisecond),           // Increased for better batching
+		kgo.ProducerLinger(50 * time.Millisecond),          // Increased for better batching
 		kgo.ProducerBatchCompression(kgo.Lz4Compression()), // LZ4: fast compression
 		kgo.ProducerBatchMaxBytes(1024 * 1024),             // 1MB max batch
 	}

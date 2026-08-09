@@ -207,18 +207,18 @@ func ClampFloat64(value, min, max float64) float64 {
 
 // Dangerous HTML patterns compiled at package init.
 var (
-	scriptTagRegex      = regexp.MustCompile(`(?i)<script[\s>][\s\S]*?</script>`)
-	scriptOpenRegex     = regexp.MustCompile(`(?i)<script[\s>/]`)
-	onEventAttrRegex    = regexp.MustCompile(`(?i)\s+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)`)
-	javascriptURIRegex  = regexp.MustCompile(`(?i)javascript\s*:`)
-	iframeTagRegex      = regexp.MustCompile(`(?i)</?iframe[\s>]`)
-	objectTagRegex      = regexp.MustCompile(`(?i)</?object[\s>]`)
-	embedTagRegex       = regexp.MustCompile(`(?i)</?embed[\s>]`)
-	imgTagRegex         = regexp.MustCompile(`(?i)<img[\s>/]`)
-	svgTagRegex         = regexp.MustCompile(`(?i)</?svg[\s>/]`)
-	baseTagRegex        = regexp.MustCompile(`(?i)<base[\s>/]`)
-	formTagRegex        = regexp.MustCompile(`(?i)</?form[\s>/]`)
-	metaTagRegex        = regexp.MustCompile(`(?i)<meta[\s>/]`)
+	scriptTagRegex     = regexp.MustCompile(`(?i)<script[\s>][\s\S]*?</script>`)
+	scriptOpenRegex    = regexp.MustCompile(`(?i)<script[\s>/]`)
+	onEventAttrRegex   = regexp.MustCompile(`(?i)\s+on\w+\s*=\s*("[^"]*"|'[^']*'|[^\s>]*)`)
+	javascriptURIRegex = regexp.MustCompile(`(?i)javascript\s*:`)
+	iframeTagRegex     = regexp.MustCompile(`(?i)</?iframe[\s>]`)
+	objectTagRegex     = regexp.MustCompile(`(?i)</?object[\s>]`)
+	embedTagRegex      = regexp.MustCompile(`(?i)</?embed[\s>]`)
+	imgTagRegex        = regexp.MustCompile(`(?i)<img[\s>/]`)
+	svgTagRegex        = regexp.MustCompile(`(?i)</?svg[\s>/]`)
+	baseTagRegex       = regexp.MustCompile(`(?i)<base[\s>/]`)
+	formTagRegex       = regexp.MustCompile(`(?i)</?form[\s>/]`)
+	metaTagRegex       = regexp.MustCompile(`(?i)<meta[\s>/]`)
 )
 
 // SanitizeRichHTML strips known dangerous HTML patterns while preserving

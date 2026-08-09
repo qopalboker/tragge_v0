@@ -155,4 +155,3 @@ func (b *MessageBatcher) Reset() {
 	b.tickMu.Unlock()
 	b.sequence.Store(0)
 }
-

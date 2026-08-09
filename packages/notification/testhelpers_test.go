@@ -109,12 +109,12 @@ func (m *MockDiscordServer) Reset() {
 
 // MockResendClient simulates Resend API for testing.
 type MockResendClient struct {
-	mu             sync.Mutex
-	Emails         []MockEmailRequest
-	ShouldFail     bool
-	FailError      error
-	ResponseDelay  time.Duration
-	requestCount   int32
+	mu            sync.Mutex
+	Emails        []MockEmailRequest
+	ShouldFail    bool
+	FailError     error
+	ResponseDelay time.Duration
+	requestCount  int32
 }
 
 // MockEmailRequest represents a captured email send request.
@@ -199,14 +199,14 @@ func NewTestAlertGenerators() *TestAlertGenerators {
 // BugAlert creates a test bug alert.
 func (g *TestAlertGenerators) BugAlert(severity Severity) Alert {
 	return Alert{
-		ID:       "test-bug-alert",
-		Type:     AlertTypeBug,
-		Severity: severity,
-		Title:    "Test Bug Alert",
-		Message:  "This is a test bug alert message",
-		Service:  "test-service",
-		TraceID:  "trace-test-123",
-		SpanID:   "span-test-456",
+		ID:        "test-bug-alert",
+		Type:      AlertTypeBug,
+		Severity:  severity,
+		Title:     "Test Bug Alert",
+		Message:   "This is a test bug alert message",
+		Service:   "test-service",
+		TraceID:   "trace-test-123",
+		SpanID:    "span-test-456",
 		Timestamp: time.Now().UTC(),
 		Metadata: map[string]string{
 			"environment": "test",
@@ -218,12 +218,12 @@ func (g *TestAlertGenerators) BugAlert(severity Severity) Alert {
 // SystemAlert creates a test system alert.
 func (g *TestAlertGenerators) SystemAlert(severity Severity) Alert {
 	return Alert{
-		ID:       "test-system-alert",
-		Type:     AlertTypeSystem,
-		Severity: severity,
-		Title:    "Test System Alert",
-		Message:  "This is a test system alert message",
-		Service:  "test-service",
+		ID:        "test-system-alert",
+		Type:      AlertTypeSystem,
+		Severity:  severity,
+		Title:     "Test System Alert",
+		Message:   "This is a test system alert message",
+		Service:   "test-service",
 		Timestamp: time.Now().UTC(),
 		Metadata: map[string]string{
 			"environment": "test",
@@ -236,12 +236,12 @@ func (g *TestAlertGenerators) SystemAlert(severity Severity) Alert {
 // ContestAlert creates a test contest alert.
 func (g *TestAlertGenerators) ContestAlert(severity Severity, contestID string) Alert {
 	return Alert{
-		ID:       "test-contest-alert",
-		Type:     AlertTypeContest,
-		Severity: severity,
-		Title:    "Test Contest Alert",
-		Message:  "This is a test contest alert message",
-		Service:  "admin-bff",
+		ID:        "test-contest-alert",
+		Type:      AlertTypeContest,
+		Severity:  severity,
+		Title:     "Test Contest Alert",
+		Message:   "This is a test contest alert message",
+		Service:   "admin-bff",
 		Timestamp: time.Now().UTC(),
 		Metadata: map[string]string{
 			"environment": "test",
@@ -254,12 +254,12 @@ func (g *TestAlertGenerators) ContestAlert(severity Severity, contestID string) 
 // TradeAlert creates a test trade alert.
 func (g *TestAlertGenerators) TradeAlert(severity Severity, userID, orderID string) Alert {
 	return Alert{
-		ID:       "test-trade-alert",
-		Type:     AlertTypeTrade,
-		Severity: severity,
-		Title:    "Test Trade Alert",
-		Message:  "This is a test trade alert message",
-		Service:  "trading-engine",
+		ID:        "test-trade-alert",
+		Type:      AlertTypeTrade,
+		Severity:  severity,
+		Title:     "Test Trade Alert",
+		Message:   "This is a test trade alert message",
+		Service:   "trading-engine",
 		Timestamp: time.Now().UTC(),
 		Metadata: map[string]string{
 			"environment": "test",
@@ -272,12 +272,12 @@ func (g *TestAlertGenerators) TradeAlert(severity Severity, userID, orderID stri
 // UserAlert creates a test user alert.
 func (g *TestAlertGenerators) UserAlert(severity Severity, userID string) Alert {
 	return Alert{
-		ID:       "test-user-alert",
-		Type:     AlertTypeUser,
-		Severity: severity,
-		Title:    "Test User Alert",
-		Message:  "This is a test user alert message",
-		Service:  "user-bff",
+		ID:        "test-user-alert",
+		Type:      AlertTypeUser,
+		Severity:  severity,
+		Title:     "Test User Alert",
+		Message:   "This is a test user alert message",
+		Service:   "user-bff",
 		Timestamp: time.Now().UTC(),
 		Metadata: map[string]string{
 			"environment": "test",

@@ -39,12 +39,12 @@ type EmailTemplate struct {
 
 // EmailTemplateListItem represents a template in the list response.
 type EmailTemplateListItem struct {
-	Slug        string     `json:"slug"`
-	Description string     `json:"description"`
-	Variables   string     `json:"variables"`
-	HasCustom   bool       `json:"has_custom"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	UpdatedBy   *string    `json:"updated_by,omitempty"`
+	Slug        string    `json:"slug"`
+	Description string    `json:"description"`
+	Variables   string    `json:"variables"`
+	HasCustom   bool      `json:"has_custom"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	UpdatedBy   *string   `json:"updated_by,omitempty"`
 }
 
 // EmailTemplateDetail represents detailed template information.

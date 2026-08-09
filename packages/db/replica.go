@@ -17,10 +17,10 @@ import (
 
 // Common errors
 var (
-	ErrNoPrimaryAvailable  = errors.New("no primary database available")
-	ErrNoReplicaAvailable  = errors.New("no replica database available")
-	ErrReplicationLagHigh  = errors.New("replication lag too high")
-	ErrPoolClosed          = errors.New("connection pool is closed")
+	ErrNoPrimaryAvailable = errors.New("no primary database available")
+	ErrNoReplicaAvailable = errors.New("no replica database available")
+	ErrReplicationLagHigh = errors.New("replication lag too high")
+	ErrPoolClosed         = errors.New("connection pool is closed")
 )
 
 // Config holds the configuration for database pools.
@@ -73,10 +73,10 @@ func DefaultConfig() Config {
 // Make sure PostgreSQL max_connections is set appropriately (recommended: 200+).
 func HighConcurrencyConfig() Config {
 	return Config{
-		MaxOpenConns:      100,                   // Increased from 25 for high concurrency
-		MaxIdleConns:      25,                    // 25% of max open for connection reuse
-		ConnMaxLifetime:   3 * time.Minute,       // Reduced for better load distribution
-		ConnMaxIdleTime:   30 * time.Second,      // Recycle idle connections faster
+		MaxOpenConns:      100,              // Increased from 25 for high concurrency
+		MaxIdleConns:      25,               // 25% of max open for connection reuse
+		ConnMaxLifetime:   3 * time.Minute,  // Reduced for better load distribution
+		ConnMaxIdleTime:   30 * time.Second, // Recycle idle connections faster
 		MaxReplicationLag: 10 * time.Second,
 		LagCheckInterval:  5 * time.Second,
 		RetryOnLag:        true,

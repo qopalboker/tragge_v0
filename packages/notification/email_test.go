@@ -496,7 +496,7 @@ func TestEmailNotifier_AlertWithStackTrace(t *testing.T) {
 		Message:  "Test message",
 		Service:  "test-service",
 		Metadata: map[string]string{
-			"stack_trace":     "goroutine 1 [running]:\nmain.main()",
+			"stack_trace":      "goroutine 1 [running]:\nmain.main()",
 			"email_recipients": "test@example.com",
 		},
 	}

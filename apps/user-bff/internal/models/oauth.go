@@ -88,13 +88,13 @@ func (u *User) HasPassword() bool {
 
 // OAuthUserInfo contains information from an OAuth provider about a user.
 type OAuthUserInfo struct {
-	ProviderUserID string  `json:"provider_user_id"`
-	Email          string  `json:"email"`
-	EmailVerified  bool    `json:"email_verified"`
-	Name           string  `json:"name,omitempty"`
-	GivenName      string  `json:"given_name,omitempty"`
-	FamilyName     string  `json:"family_name,omitempty"`
-	Picture        string  `json:"picture,omitempty"`
+	ProviderUserID string `json:"provider_user_id"`
+	Email          string `json:"email"`
+	EmailVerified  bool   `json:"email_verified"`
+	Name           string `json:"name,omitempty"`
+	GivenName      string `json:"given_name,omitempty"`
+	FamilyName     string `json:"family_name,omitempty"`
+	Picture        string `json:"picture,omitempty"`
 }
 
 // OAuthTokens contains OAuth token information.

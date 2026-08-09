@@ -23,9 +23,9 @@ const batchChunkSize = 500
 
 // Common errors for in-app notifications.
 var (
-	ErrNotificationNotFound    = errors.New("notification not found")
-	ErrNotificationNotOwned    = errors.New("notification does not belong to user")
-	ErrPartialScanFailure      = errors.New("some notification rows failed to scan")
+	ErrNotificationNotFound = errors.New("notification not found")
+	ErrNotificationNotOwned = errors.New("notification does not belong to user")
+	ErrPartialScanFailure   = errors.New("some notification rows failed to scan")
 )
 
 // Notification types.

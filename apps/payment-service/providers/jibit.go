@@ -830,9 +830,9 @@ func (j *Jibit) SupportedCurrencies() []string {
 
 // mapStatus maps Jibit purchase states to internal payment status.
 // Jibit has two sets of status values:
-// 1. Callback redirect (POST to callbackUrl): SUCCESSFUL, FAILED, UNKNOWN
-// 2. Purchase state (Filter/Verify API): IN_PROGRESS, READY_TO_VERIFY,
-//    SUCCESS, FAILED, EXPIRED, REVERSED, UNKNOWN, MANUALLY_SUCCESS
+//  1. Callback redirect (POST to callbackUrl): SUCCESSFUL, FAILED, UNKNOWN
+//  2. Purchase state (Filter/Verify API): IN_PROGRESS, READY_TO_VERIFY,
+//     SUCCESS, FAILED, EXPIRED, REVERSED, UNKNOWN, MANUALLY_SUCCESS
 func (j *Jibit) mapStatus(status string) PaymentStatus {
 	switch status {
 	case "SUCCESSFUL", "ALREADY_VERIFIED", "SUCCESS", "MANUALLY_SUCCESS":

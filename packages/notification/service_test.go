@@ -1020,10 +1020,10 @@ func TestNotificationService_SendAlert_RoutesToCorrectChannels(t *testing.T) {
 	defer svc.Shutdown(context.Background())
 
 	tests := []struct {
-		name           string
-		severity       Severity
-		expectDiscord  bool
-		expectEmail    bool
+		name          string
+		severity      Severity
+		expectDiscord bool
+		expectEmail   bool
 	}{
 		{"critical routes to both", SeverityCritical, true, true},
 		{"high routes to both", SeverityHigh, true, true},

@@ -102,29 +102,29 @@ type nowPaymentsInvoiceRequest struct {
 
 // nowPaymentsInvoiceResponse represents response from creating an invoice
 type nowPaymentsInvoiceResponse struct {
-	ID              string  `json:"id"`
-	InvoiceURL      string  `json:"invoice_url"`
-	PaymentStatus   string  `json:"payment_status"`
-	PriceAmount     float64 `json:"price_amount"`
-	PriceCurrency   string  `json:"price_currency"`
-	PayAmount       float64 `json:"pay_amount,omitempty"`
-	PayCurrency     string  `json:"pay_currency,omitempty"`
-	PayAddress      string  `json:"pay_address,omitempty"`
-	ExpirationDate  string  `json:"expiration_estimate_date,omitempty"`
-	CreatedAt       string  `json:"created_at"`
+	ID             string  `json:"id"`
+	InvoiceURL     string  `json:"invoice_url"`
+	PaymentStatus  string  `json:"payment_status"`
+	PriceAmount    float64 `json:"price_amount"`
+	PriceCurrency  string  `json:"price_currency"`
+	PayAmount      float64 `json:"pay_amount,omitempty"`
+	PayCurrency    string  `json:"pay_currency,omitempty"`
+	PayAddress     string  `json:"pay_address,omitempty"`
+	ExpirationDate string  `json:"expiration_estimate_date,omitempty"`
+	CreatedAt      string  `json:"created_at"`
 }
 
 // nowPaymentsPaymentStatus represents payment status response
 type nowPaymentsPaymentStatus struct {
-	PaymentID       int64   `json:"payment_id"`
-	PaymentStatus   string  `json:"payment_status"`
-	PayAddress      string  `json:"pay_address"`
-	PayAmount       float64 `json:"pay_amount"`
-	ActuallyPaid    float64 `json:"actually_paid"`
-	PayCurrency     string  `json:"pay_currency"`
-	PriceAmount     float64 `json:"price_amount"`
-	PriceCurrency   string  `json:"price_currency"`
-	OrderID         string  `json:"order_id"`
+	PaymentID     int64   `json:"payment_id"`
+	PaymentStatus string  `json:"payment_status"`
+	PayAddress    string  `json:"pay_address"`
+	PayAmount     float64 `json:"pay_amount"`
+	ActuallyPaid  float64 `json:"actually_paid"`
+	PayCurrency   string  `json:"pay_currency"`
+	PriceAmount   float64 `json:"price_amount"`
+	PriceCurrency string  `json:"price_currency"`
+	OrderID       string  `json:"order_id"`
 }
 
 // CreatePayment creates a new crypto payment invoice
@@ -508,9 +508,9 @@ func (n *NowPayments) ReversePayment(ctx context.Context, purchaseID string) (*R
 
 // nowPaymentsEstimateResponse represents the response from the estimate endpoint
 type nowPaymentsEstimateResponse struct {
-	CurrencyFrom  string  `json:"currency_from"`
-	AmountFrom    float64 `json:"amount_from"`
-	CurrencyTo    string  `json:"currency_to"`
+	CurrencyFrom    string  `json:"currency_from"`
+	AmountFrom      float64 `json:"amount_from"`
+	CurrencyTo      string  `json:"currency_to"`
 	EstimatedAmount float64 `json:"estimated_amount"`
 }
 
