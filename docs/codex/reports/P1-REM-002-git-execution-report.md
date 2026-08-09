@@ -271,10 +271,22 @@ payment-service packages. Both commands emitted no diagnostic output.
 ### 8.5 Pinned lint
 
 `golangci-lint` was unavailable in the local executable path, including the Go
-bin directory. Local pinned lint is therefore **unavailable**, not passed. The
-repository CI installs the pinned `v2.12.2` tool and is the required delivery
-evidence. Until the final report-bearing branch head passes that CI, delivery
-remains incomplete.
+bin directory. Local pinned lint is therefore **unavailable**, not passed.
+
+GitHub Actions run `31311607058` installed and identified pinned
+`golangci-lint v2.12.2`, then failed in the Trade BFF module with this exact
+diagnostic:
+
+```text
+apps/trade-bff/server/hub_contest_test.go:258:3: string `JPM` has 5 occurrences, make it a constant (goconst)
+```
+
+The CI Test and Build steps were skipped after lint failed; they are not
+reported as passed. Inspection confirms the referenced string uses already
+exist on base main and were not introduced or semantically changed here. The
+changed file is an exact `gofmt` transform of its base blob. Fixing `goconst`,
+suppressing the rule, or excluding the module would be unrelated lint cleanup
+explicitly forbidden by this task. No such change was made.
 
 ## 9. Structural and security regressions
 
@@ -371,13 +383,57 @@ as a shell command.
 | Changed/staged-only high-confidence credential scan | Exit `0`; zero findings. |
 | Report-aware authorized `node --test scripts/*.test.mjs` | Exit `0`; 89 passed, zero failed/skipped. |
 | Report-aware direct retired-provider, SEC-006, and SEC-007 validators | Exit `0` for each; zero active retired-provider references. |
+| `git commit -m "chore(go): format phase 1 security sources"` | Exit `0`; implementation commit `e2965c11fca6fcf771b66e10b7f7556bce28b5fa`. |
+| First `git push --set-upstream origin codex/p1-rem-002-gofmt-phase1` | Produced no output and hung in credential handoff; terminated, no success claimed. |
+| Noninteractive push without selected username | Exit `128`; Git could not read a username with prompts disabled. |
+| `git credential-manager github list` | Exit `0`; authorized `qopalboker` account was available; no credential value printed. |
+| Noninteractive push with `credential.username=qopalboker` | Exit `0`; new task branch pushed, upstream set. |
+| GitHub connector PR-create attempt | HTTP `403`; no PR created by that attempt. |
+| Authorized GitHub REST PR-create call | Exit `0`; draft PR #6 opened at implementation head `e2965c1...`. |
+| GitHub Actions run `31311607058` | Change detection passed; frontend skipped; pinned linter install passed; Go lint failed; Go test/build skipped. |
+| CI failure inspection | Exact `goconst` finding at `apps/trade-bff/server/hub_contest_test.go:258:3`; base/current inspection confirmed the references pre-exist. |
+| PR #6 metadata/review/thread inspection | Open, draft, unmerged, mergeable; zero reviews and zero threads. |
+| Final CI-failure report-aware `node --test scripts/*.test.mjs` | Exit `0`; 89 passed, zero failed/skipped. |
+| Final retired-provider and `git diff --check` rerun | Exit `0`; zero active references and no diff error. |
 
 ## 13. Git delivery evidence
 
-At this report revision, the implementation commit, push, pull request,
-final-head CI, review, merge, and post-merge verification have not yet occurred.
-They must be recorded in a later report-only update. No direct push to main and
-no force push is authorized.
+### 13.1 Commit, push, and pull request
+
+- **Implementation commit:**
+  `e2965c11fca6fcf771b66e10b7f7556bce28b5fa`
+- **Commit message:** `chore(go): format phase 1 security sources`
+- **Push:** succeeded only to
+  `codex/p1-rem-002-gofmt-phase1`; no force push.
+- **Pull request:** #6,
+  `https://github.com/qopalboker/tragge_v0/pull/6`
+- **PR state:** open, draft, unmerged
+- **Base/head:** `main` / `codex/p1-rem-002-gofmt-phase1`
+- **Implementation head:** `e2965c11fca6fcf771b66e10b7f7556bce28b5fa`
+
+The normal credential handoff hung without output and was terminated; no push
+was inferred. A noninteractive retry without a selected account failed with
+exit `128`. The final push selected the already-authorized `qopalboker` account
+through Git Credential Manager and succeeded. The GitHub connector returned
+`403` for PR creation, so the same authorized credential-manager account was
+used for the GitHub REST call without printing or persisting a token.
+
+### 13.2 CI, review, and merge
+
+- **Workflow run:** `31311607058` (`CI`, run 26)
+- **Change detection:** passed
+- **Frontend:** correctly skipped because no frontend path changed
+- **Pinned linter install:** passed; version `2.12.2`
+- **Go lint:** failed on the pre-existing `goconst` finding documented above
+- **Go test:** skipped after lint failure; not passed
+- **Go build:** skipped after lint failure; not passed
+- **Reviews:** none
+- **Review threads:** none
+- **Mergeability:** GitHub reports mergeable, but the mandatory checks fail
+- **Merge:** not performed; PR remains draft and unmerged
+
+The failed CI is a mandatory acceptance blocker. It was not suppressed,
+reinterpreted, or repaired outside scope.
 
 ## 14. Known untested and unrelated behavior
 
