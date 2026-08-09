@@ -13,6 +13,7 @@ export const permittedRetirementReferences = new Map([
 	['apps/payment-service/server/payment_provider_retirement_test.go', 'Executable generic-404 fixture; the active router never registers the path.'],
 	['docs/codex/PRODUCTION_ROADMAP_AND_CODEX_TASKS.md', 'Current SEC-006 task amendment records the approved retirement gate.'],
 	['docs/codex/reports/SEC-006-git-execution-report.md', 'Historical failed-gate evidence and current remediation record must preserve the former provider name.'],
+	['docs/codex/reports/SEC-007-git-execution-report.md', 'SEC-007 prerequisite-regression evidence confirms the retired provider remains absent.'],
 	['docs/product/FIXED_PRODUCT_AND_TECHNICAL_POLICIES.md', 'Current fixed policy explicitly marks the provider retired.'],
 	['docs/product/canonical-domain-glossary-and-version-catalog.md', 'Version catalog identifies the current retirement decision.'],
 	['docs/product/payment4-retirement-policy-amendment.md', 'Authoritative product decision and occurrence inventory.'],

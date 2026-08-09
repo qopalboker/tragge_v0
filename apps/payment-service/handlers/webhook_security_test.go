@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -99,7 +100,10 @@ func TestWebhookSecurityRedisReplayIntegration(t *testing.T) {
 	}
 	event := &providers.WebhookEvent{ProviderPaymentID: "redis-fixture", OrderID: "order-fixture", Status: providers.PaymentStatusFinished}
 	headers := map[string]string{webhookTimestampHeader: now.Format(time.RFC3339)}
-	body := []byte(`{"unique":"sec006-redis-replay-fixture"}`)
+	// The disposable Redis runtime is deliberately reused by prerequisite security
+	// regressions, so this test must not collide with a preserved key from an earlier
+	// invocation of the same fixture.
+	body := []byte(fmt.Sprintf(`{"unique":"sec006-redis-replay-%d"}`, time.Now().UnixNano()))
 	if err := security.Validate(ctx, providers.ProviderNowPayments, headers, body, event); err != nil {
 		t.Fatalf("first webhook rejected: %v", err)
 	}

@@ -16,6 +16,8 @@ const toast = useToast();
 
 const email = ref('');
 const password = ref('');
+const mfaCode = ref('');
+const useRecoveryCode = ref(false);
 const showPassword = ref(false);
 
 // Login success state for welcome feedback
@@ -26,6 +28,9 @@ const backendAvailable = ref<boolean | null>(null);
 const checkingBackend = ref(false);
 
 const isValid = computed(() => {
+  if (authStore.mfaStage === 'verify' || authStore.mfaStage === 'enroll_verify') {
+    return mfaCode.value.trim().length > 0;
+  }
   return email.value.length > 0 && password.value.length > 0;
 });
 
@@ -57,7 +62,27 @@ async function retryBackendCheck(): Promise<void> {
 async function handleSubmit(): Promise<void> {
   if (!isValid.value || authStore.loading) return;
 
-  const success = await authStore.login(email.value, password.value);
+  let success: boolean;
+  if (authStore.mfaStage === 'verify' || authStore.mfaStage === 'enroll_verify') {
+    success = await authStore.verifyMFA(mfaCode.value.trim(), useRecoveryCode.value);
+    mfaCode.value = '';
+  } else if (authStore.mfaStage === 'enroll') {
+    await authStore.startMFAEnrollment();
+    password.value = '';
+    return;
+  } else if (authStore.mfaStage === 'recovery_codes') {
+    authStore.acknowledgeRecoveryCodes();
+    success = true;
+  } else {
+    success = await authStore.login(email.value, password.value);
+    password.value = '';
+    const stageAfterPassword = String(authStore.mfaStage);
+    if (stageAfterPassword === 'enroll') {
+      await authStore.startMFAEnrollment();
+      return;
+    }
+    if (stageAfterPassword === 'verify') return;
+  }
 
   if (success) {
     // Show welcome state and success toast
@@ -78,6 +103,12 @@ async function handleSubmit(): Promise<void> {
 function toggleLanguage(): void {
   i18nStore.toggleLocale();
 }
+
+function restartLogin(): void {
+  authStore.cancelMFA();
+  mfaCode.value = '';
+  useRecoveryCode.value = false;
+}
 </script>
 
 <template>
@@ -92,7 +123,9 @@ function toggleLanguage(): void {
       </div>
 
       <form class="login-form" @submit.prevent="handleSubmit">
-        <h1 class="login-title">{{ t('auth.login') }}</h1>
+        <h1 class="login-title">
+          {{ authStore.mfaStage === 'password' ? t('auth.login') : t('auth.mfaTitle') }}
+        </h1>
 
         <!-- Backend Unavailable Warning -->
         <div v-if="backendAvailable === false" class="backend-warning">
@@ -115,47 +148,79 @@ function toggleLanguage(): void {
           {{ authStore.error }}
         </div>
 
-        <div class="form-group">
-          <label class="form-label" for="email">{{ t('auth.email') }}</label>
-          <input
-            id="email"
-            v-model="email"
-            type="email"
-            class="input"
-            :placeholder="t('auth.email')"
-            autocomplete="email"
-            required
-          />
-        </div>
-
-        <div class="form-group">
-          <label class="form-label" for="password">{{ t('auth.password') }}</label>
-          <div class="password-input">
+        <template v-if="authStore.mfaStage === 'password'">
+          <div class="form-group">
+            <label class="form-label" for="email">{{ t('auth.email') }}</label>
             <input
-              id="password"
-              v-model="password"
-              :type="showPassword ? 'text' : 'password'"
+              id="email"
+              v-model="email"
+              type="email"
               class="input"
-              :placeholder="t('auth.password')"
-              autocomplete="current-password"
+              :placeholder="t('auth.email')"
+              autocomplete="email"
               required
             />
-            <button
-              type="button"
-              class="password-toggle"
-              @click="showPassword = !showPassword"
-            >
-              <svg v-if="showPassword" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
-                <line x1="1" y1="1" x2="23" y2="23" />
-              </svg>
-              <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-            </button>
           </div>
-        </div>
+
+          <div class="form-group">
+            <label class="form-label" for="password">{{ t('auth.password') }}</label>
+            <div class="password-input">
+              <input
+                id="password"
+                v-model="password"
+                :type="showPassword ? 'text' : 'password'"
+                class="input"
+                :placeholder="t('auth.password')"
+                autocomplete="current-password"
+                required
+              />
+              <button
+                type="button"
+                class="password-toggle"
+                @click="showPassword = !showPassword"
+              >
+                <svg v-if="showPassword" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
+                <svg v-else width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </template>
+
+        <template v-else-if="authStore.mfaStage === 'enroll_verify'">
+          <p class="mfa-instructions">{{ t('auth.mfaEnrollInstructions') }}</p>
+          <div class="provisioning-box" data-testid="mfa-provisioning">
+            <code>{{ authStore.mfaSecret }}</code>
+            <small>{{ authStore.mfaProvisioningUri }}</small>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="mfa-code">{{ t('auth.mfaCode') }}</label>
+            <input id="mfa-code" v-model="mfaCode" class="input" inputmode="numeric" autocomplete="one-time-code" maxlength="6" />
+          </div>
+        </template>
+
+        <template v-else-if="authStore.mfaStage === 'verify'">
+          <p class="mfa-instructions">{{ useRecoveryCode ? t('auth.mfaRecoveryPrompt') : t('auth.mfaPrompt') }}</p>
+          <div class="form-group">
+            <label class="form-label" for="mfa-code">{{ useRecoveryCode ? t('auth.mfaRecoveryCode') : t('auth.mfaCode') }}</label>
+            <input id="mfa-code" v-model="mfaCode" class="input" :inputmode="useRecoveryCode ? 'text' : 'numeric'" :autocomplete="useRecoveryCode ? 'off' : 'one-time-code'" />
+          </div>
+          <button type="button" class="secondary-action" @click="useRecoveryCode = !useRecoveryCode">
+            {{ useRecoveryCode ? t('auth.mfaUseAuthenticator') : t('auth.mfaUseRecovery') }}
+          </button>
+        </template>
+
+        <template v-else-if="authStore.mfaStage === 'recovery_codes'">
+          <p class="mfa-instructions">{{ t('auth.mfaRecoverySave') }}</p>
+          <ul class="recovery-codes" data-testid="mfa-recovery-codes">
+            <li v-for="code in authStore.recoveryCodes" :key="code"><code>{{ code }}</code></li>
+          </ul>
+        </template>
 
         <button
           type="submit"
@@ -167,6 +232,10 @@ function toggleLanguage(): void {
             <polyline points="20,6 9,17 4,12" />
           </svg>
           {{ loginSuccess ? t('auth.welcome') : (authStore.loading ? t('auth.loggingIn') : t('auth.loginButton')) }}
+        </button>
+
+        <button v-if="authStore.mfaStage !== 'password' && authStore.mfaStage !== 'recovery_codes'" type="button" class="secondary-action" @click="restartLogin">
+          {{ t('auth.mfaRestart') }}
         </button>
       </form>
 
@@ -224,6 +293,13 @@ function toggleLanguage(): void {
   margin-bottom: var(--spacing-xl);
   color: var(--color-text-primary);
 }
+
+.mfa-instructions { color: var(--color-text-secondary); margin-bottom: var(--spacing-md); text-align: center; }
+.provisioning-box { overflow-wrap: anywhere; background: var(--color-bg-tertiary); border-radius: var(--radius-md); padding: var(--spacing-md); margin-bottom: var(--spacing-md); }
+.provisioning-box code, .provisioning-box small { display: block; direction: ltr; text-align: left; }
+.recovery-codes { columns: 2; direction: ltr; list-style: none; padding: 0; }
+.recovery-codes li { margin: var(--spacing-xs); }
+.secondary-action { display: block; margin: var(--spacing-md) auto 0; background: none; border: none; color: var(--color-primary); cursor: pointer; }
 
 .error-message {
   background-color: #FEE2E2;

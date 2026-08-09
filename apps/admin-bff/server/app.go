@@ -73,8 +73,7 @@ type Config struct {
 	AdminAuthRateLimit  int           // Rate limit for admin auth endpoints (default: 3)
 	AdminAuthRateWindow time.Duration // Rate limit window (default: 1 minute)
 
-	// Legacy, unregistered TOTP verifier key retained for SEC-007 migration work; not required for login.
-	TOTPEncryptionKey []byte
+	AdminMFA auth.AdminMFAConfig
 }
 
 // App holds application dependencies.
@@ -100,8 +99,8 @@ type App struct {
 	failedAdminLoginTracker *failedAdminLoginTracker // Tracks failed admin login attempts
 	distributedLoginLockout *ratelimit.LoginLockout
 	reauthentication        *auth.ReauthenticationService
+	mfaChallenges           *auth.RedisAdminMFAChallengeStore
 	banExpirySweeper        *banExpirySweeper // Periodically unbans expired temporary bans
-	totpEncryptionKey       []byte            // AES-256-GCM key for decrypting TOTP secrets
 }
 
 // log returns the observability logger.
@@ -375,6 +374,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 
 	// Sensitive-action grants are ephemeral and fail closed when Redis is unavailable.
 	var reauthentication *auth.ReauthenticationService
+	var mfaChallenges *auth.RedisAdminMFAChallengeStore
 	if rdb != nil {
 		grantStore := auth.NewRedisReauthenticationGrantStore(rdb.Client(), auth.AdminReauthenticationPrefix)
 		reauthentication, err = auth.NewReauthenticationService(grantStore, auth.MaxReauthenticationTTL)
@@ -382,6 +382,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 			log.Error("Failed to initialize Admin reauthentication", zap.Error(err))
 			return
 		}
+		mfaChallenges = auth.NewRedisAdminMFAChallengeStore(rdb.Client(), auth.AdminMFAChallengePrefix)
 	}
 
 	// Initialize object storage for KYC documents. storage.New auto-selects
@@ -455,7 +456,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 		failedAdminLoginTracker: newFailedAdminLoginTracker(),
 		distributedLoginLockout: distributedLoginLockout,
 		reauthentication:        reauthentication,
-		totpEncryptionKey:       cfg.TOTPEncryptionKey,
+		mfaChallenges:           mfaChallenges,
 	}
 
 	// Initialize ban expiry sweeper to auto-unban expired temporary bans
@@ -571,6 +572,9 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 	r.Route("/api/admin/auth", func(r chi.Router) {
 		r.Use(validation.RateLimitMiddleware(adminAuthLimiter))
 		r.Post("/login", app.handleAdminLogin)
+		r.Post("/mfa/enrollment/start", app.handleAdminMFAEnrollmentStart)
+		r.Post("/mfa/enrollment/verify", app.handleAdminMFAEnrollmentVerify)
+		r.Post("/mfa/verify", app.handleAdminMFAVerify)
 		// /refresh reads the refresh_token_admin cookie ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Â ÃƒÂ¢Ã¢â€šÂ¬Ã¢â€žÂ¢ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã¢â‚¬Â¦Ãƒâ€šÃ‚Â¡ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™Ãƒâ€ Ã¢â‚¬â„¢ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã†â€™Ãƒâ€šÃ‚Â¢ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬Ãƒâ€¦Ã‚Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã†â€™ÃƒÂ¢Ã¢â€šÂ¬Ã…Â¡ÃƒÆ’Ã¢â‚¬Å¡Ãƒâ€šÃ‚Â no auth
 		// header required. Stays outside RequireAuth so an expired
 		// access token can still drive a refresh.
@@ -668,6 +672,7 @@ func RunWithSharedDeps(parentCtx context.Context, sharedPool *db.Pool, sharedRed
 
 				// Session management
 				r.With(app.auth.Middleware.RequirePermission("users.edit")).Post("/sessions/terminate", app.handleTerminateUserSessions)
+				r.With(app.auth.Middleware.RequireSuperAdmin, app.auth.Middleware.RequirePermission("users.edit"), app.requireSensitiveAction(actionAdminMFAReset, "users.edit", "user_id")).Post("/mfa/reset", app.handleAdminMFAReset)
 
 				// Wallet charge - super_admin only
 				r.With(app.auth.Middleware.RequirePermission("users.wallet.charge"), app.requireSensitiveAction(actionWalletAdjust, "users.wallet.charge", "user_id")).Post("/wallet/charge", app.handleChargeUserWallet)
@@ -1164,19 +1169,15 @@ func loadConfig() *Config {
 		}
 	}
 
-	// Load TOTP encryption key for decrypting 2FA secrets at rest (AES-256-GCM)
-	var totpEncryptionKey []byte
-	if totpKeyHex := secrets.Load("TOTP_ENCRYPTION_KEY"); totpKeyHex != "" {
-		var parseErr error
-		totpEncryptionKey, parseErr = auth.ParseTOTPEncryptionKey(totpKeyHex)
-		if parseErr != nil {
-			log.Fatalf("FATAL: invalid TOTP_ENCRYPTION_KEY: %v", parseErr)
-		}
-		log.Println("TOTP encryption key loaded successfully")
-	} else {
-		if config.IsProduction() {
-			log.Println("WARNING: TOTP_ENCRYPTION_KEY not set, 2FA verification for admins will fail for encrypted secrets")
-		}
+	adminMFAConfig, adminMFAErr := auth.ValidateAdminMFAConfig(
+		os.Getenv("ENVIRONMENT"),
+		secrets.Load("ADMIN_MFA_ENCRYPTION_KEY"),
+		secrets.Load("ADMIN_MFA_RECOVERY_PEPPER"),
+		os.Getenv("ADMIN_MFA_ISSUER"),
+		5*time.Minute,
+	)
+	if adminMFAErr != nil {
+		log.Fatalf("FATAL: invalid Admin MFA configuration: %v", adminMFAErr)
 	}
 
 	return &Config{
@@ -1205,7 +1206,7 @@ func loadConfig() *Config {
 		AdminIPWhitelist:     adminIPWhitelist,
 		AdminAuthRateLimit:   adminAuthRateLimit,
 		AdminAuthRateWindow:  adminAuthRateWindow,
-		TOTPEncryptionKey:    totpEncryptionKey,
+		AdminMFA:             adminMFAConfig,
 	}
 }
 

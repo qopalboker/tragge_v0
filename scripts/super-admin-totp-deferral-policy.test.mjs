@@ -45,16 +45,15 @@ function compact(value) {
   return value.replace(/\s+/g, " ").trim();
 }
 
-test("fixed policy records the current password-login stage and future MFA gate", () => {
+test("fixed policy supersedes the temporary deferral with the implemented MFA gate", () => {
   const policy = read(policyPath);
-  assert.match(policy, /\*\*Policy version:\*\* `2026-08-01\.1`/);
-  assert.match(policy, /Super Admin login may remain password-based/);
-  assert.match(policy, /Mandatory TOTP during initial Super Admin login is deferred to planned task\s+`SEC-007`/);
-  assert.match(policy, /`SEC-004` must not implement, activate, require, or partially roll\s+out login TOTP/);
-  assert.match(policy, /Password-only Super Admin authentication is not sufficient evidence for\s+paid-production readiness/);
+  assert.match(policy, /\*\*Policy version:\*\* `2026-08-09\.1`/);
+  assert.match(policy, /Super Admin login requires password verification followed by the Admin-only MFA/);
+  assert.match(policy, /Password verification alone must not issue a Super Admin session/);
+  assert.match(policy, /`SEC-007` implements the versioned `super_admin_totp_v1` contract/);
+  assert.match(policy, /Password-only Super Admin authentication is prohibited/);
   assert.match(policy, /Only Super Admin may execute approved destructive\s+financial operations/);
   assert.match(policy, /Support Admin remains limited to explicitly approved\s+support and KYC permissions/);
-  assert.match(policy, /`SEC-007` is planned, not implemented, not started, and required before\s+paid-production approval/);
   assert.match(policy, /Super Admin MFA from `SEC-007` is enforced and validated/);
   assert.match(policy, /Sensitive-action password reauthentication from `SEC-004` is enforced/);
 });
@@ -83,7 +82,7 @@ test("SEC-004 contains only sensitive-action reauthentication and privilege enfo
   assert.match(block, /(?:must|do) not implement, activate, require, or partially roll out Super Admin login MFA/i);
 });
 
-test("SEC-007 is the unique next security task and is explicitly planned", () => {
+test("SEC-007 remains the unique security task and records its implementation contract", () => {
   const roadmap = read(roadmapPath);
   const ids = [...roadmap.matchAll(/^### ([A-Z]+-\d{3})\b/gm)].map((match) => match[1]);
   assert.equal(ids.length, new Set(ids).size, "duplicate roadmap task ID");
@@ -93,10 +92,9 @@ test("SEC-007 is the unique next security task and is explicitly planned", () =>
   );
   const block = taskBlock(roadmap, "SEC-007");
   for (const required of [
-    "Planned.",
-    "Not implemented.",
-    "Not started.",
+    "Implemented by the SEC-007 task change set",
     "Required before paid-production approval can be reconsidered.",
+    "super_admin_totp_v1",
     "Google-Authenticator-compatible TOTP",
     "secure enrollment",
     "encrypted TOTP-secret storage",
@@ -114,26 +112,26 @@ test("SEC-007 is the unique next security task and is explicitly planned", () =>
   }
 });
 
-test("Phase 1 controller separates SEC-004 from planned SEC-007", () => {
+test("Phase 1 controller separates SEC-004 from implemented SEC-007", () => {
   const prompt = read(phasePromptPath);
   assert.match(prompt, /`SEC-004` — Implement sensitive-action password reauthentication and privileged-action enforcement/);
   assert.match(prompt, /`SEC-007` — Implement Super Admin MFA before paid-production approval/);
   assert.match(prompt, /`SEC-004` must not implement, activate, require, or partially roll out Super\s+Admin login MFA/);
-  assert.match(prompt, /`SEC-007` owns planned Google-Authenticator-compatible TOTP/);
+  assert.match(prompt, /`SEC-007` owns the implemented Google-Authenticator-compatible TOTP/);
   assert.match(prompt, /completed Super Admin MFA under `SEC-007`/);
   assert.doesNotMatch(prompt, /`SEC-004` —[^\n]*(?:TOTP|MFA)/i);
 });
 
-test("glossary and version catalog distinguish implemented and planned security states", () => {
+test("glossary and version catalog distinguish the two implemented security controls", () => {
   const glossary = read(glossaryPath);
-  assert.match(glossary, /\*\*Catalog version:\*\* `2026-08-01\.1`/);
-  assert.match(glossary, /\*\*Super Admin\*\*[^\n]*SEC-007/);
+  assert.match(glossary, /\*\*Catalog version:\*\* `2026-08-09\.1`/);
+  assert.match(glossary, /\*\*Super Admin\*\*[^\n]*super_admin_totp_v1/);
   assert.match(glossary, /\*\*Sensitive-Action Password Reauthentication\*\*[^\n]*`SEC-004`/);
   assert.match(glossary, /\*\*Reauthentication Grant\*\*[^\n]*short-lived, single-use/);
-  assert.match(glossary, /\*\*Super Admin MFA\*\*[^\n]*Planned `SEC-007`/);
+  assert.match(glossary, /\*\*Super Admin MFA\*\*[^\n]*implemented `SEC-007`/);
   assert.match(glossary, /User\/Admin authentication isolation \| No public contract version assigned; implemented boundary recorded by `SEC-001` \| current implementation/);
   assert.match(glossary, /Sensitive-action reauthentication contract \| Not assigned \(current local implementation; no public contract version\) \| current local implementation/);
-  assert.match(glossary, /Super Admin MFA contract \| Not assigned \(planned\) \| planned; not implemented; not started/);
+  assert.match(glossary, /Super Admin MFA contract \| `super_admin_totp_v1` \| current implementation/);
 });
 
 test("aligned current documentation has no SEC-004 TOTP ownership claim", () => {

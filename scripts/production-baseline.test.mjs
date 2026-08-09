@@ -26,6 +26,9 @@ test("inventory preserves FND-001 and applies only documented task deltas", () =
     },
     "SEC-005": { goFiles: 8, goTestFiles: 4, typeScriptFiles: 1 },
     "SEC-006": { goFiles: 2, goTestFiles: 1 },
+    "SEC-007": {
+      goFiles: 4, goTestFiles: 2, typeScriptFiles: 2, sqlFiles: 2, upMigrations: 1,
+    },
   });
   assert.equal(expectedFnd001Counts.goFiles, 375);
   assert.equal(expectedFnd001Counts.goTestFiles, 99);

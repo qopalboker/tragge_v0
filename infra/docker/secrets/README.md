@@ -24,6 +24,8 @@ This directory contains Docker secrets that are mounted into containers at `/run
 | `jwt_refresh_secret_user.txt` | User refresh-token signing secret | Independently generated random value |
 | `jwt_secret_admin.txt` | Admin access-token signing secret | Independently generated random value |
 | `jwt_refresh_secret_admin.txt` | Admin refresh-token signing secret | Independently generated random value |
+| `admin_mfa_encryption_key.txt` | Admin-only MFA AES-256-GCM key | 32 random bytes encoded as hexadecimal |
+| `admin_mfa_recovery_pepper.txt` | Admin-only recovery-code HMAC pepper | Independent 32 random bytes encoded as hexadecimal |
 | `twelvedata_api_keys.txt` | TwelveData API keys (comma-separated) | `key1,key2` |
 | `massive_api_keys.txt` | Massive API keys (comma-separated) | `key1,key2` |
 | `security_code_hash_secret.txt` | Dedicated HMAC key for OTP/reset digests | Independently generated random value |
@@ -81,6 +83,8 @@ openssl rand -base64 48 | tr -d '\n' > jwt_secret_user.txt
 openssl rand -base64 48 | tr -d '\n' > jwt_refresh_secret_user.txt
 openssl rand -base64 48 | tr -d '\n' > jwt_secret_admin.txt
 openssl rand -base64 48 | tr -d '\n' > jwt_refresh_secret_admin.txt
+openssl rand -hex 32 > admin_mfa_encryption_key.txt
+openssl rand -hex 32 > admin_mfa_recovery_pepper.txt
 
 # Generate the independent security-code HMAC key.
 openssl rand -base64 48 | tr -d '\n' > security_code_hash_secret.txt

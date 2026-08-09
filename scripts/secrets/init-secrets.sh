@@ -113,6 +113,8 @@ create_secret "minio_secret_key.txt" "minioadmin" "MinIO secret key"
 
 # TOTP encryption key (32 bytes = 64 hex chars, for AES-256-GCM encryption of 2FA secrets)
 create_secret "totp_encryption_key.txt" "$(openssl rand -hex 32)" "TOTP encryption key (AES-256)"
+create_secret "admin_mfa_encryption_key.txt" "$(openssl rand -hex 32)" "Admin-only MFA encryption key (AES-256-GCM)"
+create_secret "admin_mfa_recovery_pepper.txt" "$(openssl rand -hex 32)" "Admin-only MFA recovery-code HMAC pepper"
 
 # Jibit PPG payment gateway (placeholder - user must provide)
 create_secret "jibit_api_key.txt" "" "Jibit PPG API key"

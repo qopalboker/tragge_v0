@@ -88,6 +88,10 @@ secrets:
   # TOTP encryption key (AES-256-GCM for 2FA secrets at rest)
   totp_encryption_key:
     file: ./secrets/totp_encryption_key.txt
+  admin_mfa_encryption_key:
+    file: ./secrets/admin_mfa_encryption_key.txt
+  admin_mfa_recovery_pepper:
+    file: ./secrets/admin_mfa_recovery_pepper.txt
   # KaveNegar SMS API key
   kavenegar_api_key:
     file: ./secrets/kavenegar_api_key.txt
@@ -288,6 +292,9 @@ services:
       JWT_ISSUER_ADMIN: ${JWT_ISSUER_ADMIN:-tragge-admin-auth}
       JWT_AUDIENCE_USER: ${JWT_AUDIENCE_USER:-user}
       JWT_AUDIENCE_ADMIN: ${JWT_AUDIENCE_ADMIN:-admin}
+      ADMIN_MFA_ENCRYPTION_KEY_FILE: /run/secrets/admin_mfa_encryption_key
+      ADMIN_MFA_RECOVERY_PEPPER_FILE: /run/secrets/admin_mfa_recovery_pepper
+      ADMIN_MFA_ISSUER: ${ADMIN_MFA_ISSUER:-Tragge Admin}
       USER_FRONTEND_ORIGIN: ${USER_FRONTEND_ORIGIN:-http://127.0.0.1:8080}
       ADMIN_FRONTEND_ORIGIN: ${ADMIN_FRONTEND_ORIGIN:-http://127.0.0.1:8081}
       DISCORD_WEBHOOK_URL_FILE: /run/secrets/discord_webhook_url
@@ -364,6 +371,8 @@ services:
       - jibit_kyc_api_key
       - jibit_kyc_secret_key
       - totp_encryption_key
+      - admin_mfa_encryption_key
+      - admin_mfa_recovery_pepper
       - nowpayments_api_key
       - nowpayments_ipn_secret
       - jibit_api_key

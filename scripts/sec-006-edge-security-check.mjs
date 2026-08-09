@@ -112,10 +112,10 @@ export function validateSEC006Repository() {
   if (/set_real_ip_from\s+(?:10\.0\.0\.0\/8|172\.16\.0\.0\/12|192\.168\.0\.0\/16)/.test(productionGateway)) {
     failures.push('production gateway retains broad private-network proxy trust');
   }
-  requireText('docs/security/edge-security-and-abuse-controls.md', [/Endpoint and abuse-policy matrix|Entry-point and abuse-policy matrix/, /Trusted proxy/, /Payment webhooks/, /SEC-005/, /SEC-007 remains planned and not started/, /NO-GO/]);
+  requireText('docs/security/edge-security-and-abuse-controls.md', [/Endpoint and abuse-policy matrix|Entry-point and abuse-policy matrix/, /Trusted proxy/, /Payment webhooks/, /SEC-005/, /SEC-007 implements the separate Super Admin MFA control/, /NO-GO/]);
   requireText('docs/codex/reports/SEC-006-git-execution-report.md', [/SEC-006 (?:PASS|FAIL)/, /Every command executed/, /Pull-request URL and number/, /Paid-production status/]);
 
-  const prohibitedReports = ['SEC-007-local-execution-report.md', 'SEC-007-git-execution-report.md', 'phase-1-exit-report.md'];
+  const prohibitedReports = ['phase-1-exit-report.md'];
   for (const report of prohibitedReports) {
     if (fs.existsSync(path.join(root, 'docs/codex/reports', report))) failures.push('later task or gate was started: ' + report);
   }

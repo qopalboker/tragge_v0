@@ -2055,18 +2055,42 @@ func (a *App) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Mandatory login TOTP is intentionally deferred to SEC-007. This current
-	// roadmap stage retains password-based login inside the isolated Admin
-	// cryptographic/session context established by SEC-001.
+	// Super Admin password verification establishes only the first factor. No
+	// access/refresh token or server session exists until the Admin-only MFA
+	// enrollment or verification challenge succeeds. The password step must not
+	// clear MFA failure counters; only completed MFA may clear them.
+	if securityState.hasRole(auth.RoleSuperAdmin) {
+		if a.mfaChallenges == nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": adminMsg.InternalError})
+			return
+		}
+		var enrolled bool
+		if err := a.pool.Primary().QueryRowContext(ctx, `SELECT EXISTS (SELECT 1 FROM admin_mfa_credentials WHERE user_id=$1)`, userID).Scan(&enrolled); err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": adminMsg.InternalError})
+			return
+		}
+		stage := "verify"
+		if !enrolled {
+			stage = "enroll"
+		}
+		challenge, expiresAt, err := a.issueAdminMFAChallenge(ctx, r, userID, req.Email, securityState, stage, "")
+		if err != nil {
+			writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": adminMsg.InternalError})
+			return
+		}
+		a.logAuditEvent(ctx, userID, "admin.mfa.challenge.issued", "auth", userID, map[string]string{"stage": stage})
+		writeJSON(w, http.StatusAccepted, adminMFALoginResponse{MFARequired: true, EnrollmentRequired: !enrolled, Challenge: challenge, ExpiresAt: expiresAt})
+		return
+	}
 
-	// Successful login - clear failed attempt tracking
+	// Support Admin uses the isolated Admin password session but never acquires
+	// Super Admin privileges or an MFA assurance claim.
 	if err := a.distributedLoginLockout.Success(ctx, lockoutIdentities...); err != nil {
 		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": adminMsg.InternalError})
 		return
 	}
 	a.failedAdminLoginTracker.recordSuccess(clientIP)
 
-	// Generate tokens
 	deviceInfo := userAgent
 	tokenPair, _, err := a.auth.LoginWithPermissions(ctx, userID, roles, effectiveAdminPermissions(securityState), deviceInfo, clientIP)
 	if err != nil {
@@ -2092,9 +2116,15 @@ func (a *App) handleAdminLogin(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// handleAdmin2FALoginVerify is legacy, deliberately unregistered code. SEC-007 owns
-// a future reviewed MFA implementation; current Admin login does not invoke this handler.
+// handleAdmin2FALoginVerify is a retired legacy symbol retained only to make its
+// fail-closed removal explicit. No route registers it; SEC-007 uses the dedicated
+// Admin MFA enrollment and verification handlers instead.
 func (a *App) handleAdmin2FALoginVerify(w http.ResponseWriter, r *http.Request) {
+	if r != nil {
+		writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
+		return
+	}
+
 	clientIP := getAdminClientIP(r)
 
 	// IP whitelist check
@@ -2173,17 +2203,10 @@ func (a *App) handleAdmin2FALoginVerify(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 
-	// Decrypt if encrypted
-	plaintextSecret := totpSecret.String
-	if a.totpEncryptionKey != nil {
-		decrypted, decErr := auth.DecryptTOTPSecret(totpSecret.String, a.totpEncryptionKey)
-		if decErr != nil {
-			a.log().Error("Failed to decrypt admin TOTP secret", zap.Error(decErr))
-			writeJSON(w, http.StatusInternalServerError, map[string]string{"error": adminMsg.InternalError})
-			return
-		}
-		plaintextSecret = decrypted
-	}
+	// The retired path cannot decrypt either legacy plaintext or shared-domain
+	// ciphertext. This assignment keeps the unreachable historical body buildable
+	// without preserving an authentication bypass.
+	plaintextSecret := ""
 
 	if !auth.VerifyTOTP(plaintextSecret, req.Code, time.Now()) {
 		a.redis.Incr(ctx, attemptKey)

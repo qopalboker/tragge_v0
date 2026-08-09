@@ -90,6 +90,11 @@ func (a *App) handleAdminLogout(w http.ResponseWriter, r *http.Request) {
 			a.log().Warn("Failed to revoke Admin reauthentication grants on logout", zap.Error(err))
 		}
 	}
+	if actorID != "" && a.mfaChallenges != nil {
+		if err := a.mfaChallenges.RevokeUser(ctx, actorID); err != nil {
+			a.log().Warn("Failed to revoke Admin MFA challenges on logout", zap.Error(err))
+		}
+	}
 
 	clearAdminRefreshTokenCookie(w, r)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "logged out"})

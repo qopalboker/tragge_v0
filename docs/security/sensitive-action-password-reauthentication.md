@@ -9,14 +9,14 @@ This control follows the [fixed product and technical policies](../product/FIXED
 ## Current login and MFA status
 
 Current Admin login requires the Admin password and the isolated Admin token,
-audience, cookie, session, revocation, and CSRF controls. The active router no
-longer registers the legacy TOTP login endpoint. Legacy verifier code is retained
-unregistered only as migration evidence; it is not a login requirement and is
-not claimed as an MFA implementation.
+audience, cookie, session, revocation, and CSRF controls. `SEC-007` additionally
+requires the Admin-only `super_admin_totp_v1` assurance before a Super Admin
+session is issued. The retired shared-user TOTP verifier is unregistered and
+fails closed; it is not a login path.
 
-Mandatory Super Admin MFA is planned, not implemented, and not started under
-`SEC-007`. Password-only login at this development stage is not evidence of
-paid-production readiness.
+Password reauthentication remains an independent sensitive-action control and
+is not replaced by login MFA. Completing both controls is still not, by itself,
+evidence of paid-production readiness.
 
 ## Canonical authorization
 
@@ -95,7 +95,7 @@ The Admin frontend asks for the current password immediately before the selected
 operation, sends it only to `/api/admin/reauthenticate`, keeps the returned grant
 in a function-local value, immediately supplies it in the dedicated header, and
 discards it on completion or failure. It does not persist or log either value and
-does not add a TOTP field, enrollment flow, recovery UI, or MFA claim.
+does not persist or transport the separate SEC-007 MFA material.
 
 A deployment must update the backend before or together with the Admin frontend
 so protected operations do not temporarily call a grant-enforcing endpoint from
@@ -105,9 +105,9 @@ an older client.
 
 - SEC-005 owns generalized log/credential redaction beyond these focused paths.
 - SEC-006 owns broader edge-security and abuse controls.
-- SEC-007 owns Super Admin TOTP enrollment, login challenge, recovery, replay
-  prevention, audited session upgrade, database/concurrency validation, and
-  production configuration.
+- SEC-007 implements Super Admin TOTP enrollment, login challenge, recovery,
+  replay prevention, audited session upgrade, database/concurrency validation,
+  and production configuration.
 - Later Platform data/architecture tasks replace the shared-public legacy role
   migration with the final owner-isolated authentication schema.
 

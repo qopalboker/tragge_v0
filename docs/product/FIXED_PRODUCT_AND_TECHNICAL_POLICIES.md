@@ -1,7 +1,7 @@
 # Tragge — Fixed Product and Technical Policies
 
 **Status:** Approved baseline for production implementation  
-**Policy version:** `2026-08-01.1`
+**Policy version:** `2026-08-09.1`
 **Canonical timezone for scheduling:** `Asia/Tehran`  
 **Canonical storage timezone:** UTC  
 **Technical language:** English  
@@ -1061,17 +1061,17 @@ state machine.
 
 ### 14.5 Current Admin authentication
 
-For the current roadmap stage, Super Admin login may remain password-based
-inside the isolated Admin cryptographic and session trust domain established by
-`SEC-001`.
+Super Admin login requires password verification followed by the Admin-only MFA
+contract `super_admin_totp_v1` inside the isolated Admin cryptographic and
+session trust domain established by `SEC-001`.
 
 - A valid Admin password and every current Admin authorization, session,
   revocation, cookie, and CSRF control remain required.
-- Mandatory TOTP during initial Super Admin login is deferred to planned task
-  `SEC-007`; `SEC-004` must not implement, activate, require, or partially roll
-  out login TOTP.
-- Password-only Super Admin authentication is not sufficient evidence for
-  paid-production readiness.
+- Password verification alone must not issue a Super Admin session, access
+  token, or refresh token. `SEC-007` owns the required enrollment, TOTP/recovery
+  challenge, and MFA session assurance.
+- Password-only Super Admin authentication is prohibited and is not evidence
+  for paid-production readiness.
 - Password reset invalidates all existing sessions.
 - User and Admin JWT signing keys, audiences, refresh tokens, cookies, and Redis
   namespaces are cryptographically and operationally separate.
@@ -1098,10 +1098,10 @@ part of the product. Only Super Admin may execute approved destructive
 financial operations. Support Admin remains limited to explicitly approved
 support and KYC permissions.
 
-### 14.7 Planned Super Admin MFA
+### 14.7 Super Admin MFA
 
-`SEC-007` is planned, not implemented, not started, and required before
-paid-production approval can be reconsidered. It must implement and validate:
+`SEC-007` implements the versioned `super_admin_totp_v1` contract and remains a
+required paid-production prerequisite. The contract includes:
 
 - Google-Authenticator-compatible TOTP;
 - secure enrollment;
@@ -1115,8 +1115,8 @@ paid-production approval can be reconsidered. It must implement and validate:
 - frontend enrollment and login flows; and
 - real database and concurrency tests.
 
-Deferral changes roadmap sequencing only. It does not approve password-only
-Super Admin authentication for paid production.
+Implementation of this control does not independently approve paid production;
+all other launch gates and the Phase 1 exit gate remain required.
 Paid-production status remains `NO-GO`.
 
 ---

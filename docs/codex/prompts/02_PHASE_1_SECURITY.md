@@ -184,15 +184,14 @@ Stop after this report.
 - Production OTP/reset delivery fails closed when providers are missing.
 - Iranian email delivery uses Mailerino and foreign delivery uses Resend.
 - Email ownership is verified by OTP.
-- For the current roadmap stage, Super Admin login may remain password-based
-  inside the isolated Admin trust domain; password-only login is not sufficient
-  paid-production evidence.
+- Super Admin login requires the Admin-only `super_admin_totp_v1` MFA assurance;
+  password verification alone must not create a Super Admin session.
 - `SEC-004` must not implement, activate, require, or partially roll out Super
   Admin login MFA. It owns fresh password reauthentication and privileged-action
   enforcement only.
-- `SEC-007` owns planned Google-Authenticator-compatible TOTP, enrollment,
-  recovery, session upgrade, production configuration, and frontend flows. It is
-  required before paid-production approval can be reconsidered.
+- `SEC-007` owns the implemented Google-Authenticator-compatible TOTP,
+  enrollment, recovery, session upgrade, production configuration, and frontend
+  flows. It remains one prerequisite among all paid-production gates.
 - Withdrawal completion and every approved destructive financial or
   security-sensitive action require short-lived, single-use, Admin-context,
   actor/session/action/resource-bound password reauthentication.
@@ -211,7 +210,7 @@ Stop after this report.
 - For `SEC-004`: password-verification, grant expiry/replay, actor/session/action/
   resource binding, permission-change invalidation, reason, permission matrix,
   and safe audit tests.
-- For planned `SEC-007`: TOTP enrollment, valid/invalid/replayed code, recovery,
+- For `SEC-007`: TOTP enrollment, valid/invalid/replayed code, recovery,
   clock-window, encrypted storage, session upgrade, startup configuration, real
   database/concurrency, and frontend tests.
 - Brute-force, rate-limit, resend-cooldown, OTP-attempt, CSRF, cookie, CORS, and

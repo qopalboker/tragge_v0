@@ -97,6 +97,18 @@ export default {
     googleAccountLinked: 'Google account linked successfully',
     accessDenied: 'Access denied. Admin privileges required.',
 
+    mfaTitle: 'Super Admin verification',
+    mfaPrompt: 'Enter the current six-digit code from your authenticator app.',
+    mfaEnrollInstructions: 'Add this Admin account to a compatible authenticator, then enter its current code. The setup value is shown only during this enrollment.',
+    mfaCode: 'Authenticator code',
+    mfaRecoveryPrompt: 'Enter one unused recovery code.',
+    mfaRecoveryCode: 'Recovery code',
+    mfaUseRecovery: 'Use a recovery code',
+    mfaUseAuthenticator: 'Use authenticator code',
+    mfaRecoverySave: 'Save these recovery codes securely now. Each code works once and they will not be shown again.',
+    mfaRestart: 'Restart secure sign-in',
+    mfaError: 'Additional authentication failed. Restart sign-in and try again.',
+
     // Validation
     errorRequired: 'This field is required',
     errorInvalidEmail: 'Please enter a valid email address',
@@ -488,6 +500,11 @@ export default {
     contestName: 'Contest',
     loadError: 'Failed to load user details',
     reviewKyc: 'Review KYC',
+    mfaReset: 'Reset Super Admin MFA',
+    mfaResetReasonPrompt: 'Reason for resetting this Super Admin MFA enrollment:',
+    mfaResetPasswordPrompt: 'Confirm your current Admin password:',
+    mfaResetSuccess: 'Super Admin MFA was reset and active sessions were revoked.',
+    mfaResetError: 'Super Admin MFA reset failed.',
     walletStatus: {
       active: 'Active',
       frozen: 'Frozen',

@@ -1,6 +1,6 @@
 # Tragge — Production Roadmap and Independent Codex Tasks
 
-**Roadmap version:** `2026-08-01.1`
+**Roadmap version:** `2026-08-09.1`
 **Current production decision:** **NO-GO**  
 **Execution goal:** fastest safe launch without preserving broken architecture or
 creating avoidable rework  
@@ -830,10 +830,10 @@ Delivery:
 You are implementing Tragge task `SEC-007`: **Implement Super Admin MFA before paid-production approval**.
 
 Status:
-- Planned.
-- Not implemented.
-- Not started.
+- Implemented by the SEC-007 task change set; Git delivery evidence is recorded
+  in `docs/codex/reports/SEC-007-git-execution-report.md`.
 - Required before paid-production approval can be reconsidered.
+- The versioned Admin MFA assurance contract is `super_admin_totp_v1`.
 
 Repository policy:
 - Read `docs/product/FIXED_PRODUCT_AND_TECHNICAL_POLICIES.md`.

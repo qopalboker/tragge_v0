@@ -2,7 +2,7 @@
 
 **Status:** FND-004 approved reset evidence
 
-**Inventory date:** 2026-07-25; updated 2026-07-29 by SEC-004
+**Inventory date:** 2026-07-25; updated 2026-08-09 by SEC-007
 
 **Scope:** Top-level `*.up.sql` files in
 [`packages/db/migrations`](../../packages/db/migrations), before the clean target
@@ -20,11 +20,12 @@ Get-ChildItem packages/db/migrations -File -Filter '*.up.sql' |
 
 The initial FND-004 audit found **98 up migrations**, numbered continuously from
 `0001` through `0098`. SEC-004 appended the paired
-`0099_admin_canonical_roles` migration. The current reproducible inventory is
-therefore **99 up migrations** numbered continuously through `0099`, with no
-duplicate identifier or missing matching down file. It now has 100 down files:
+`0099_admin_canonical_roles` migration. SEC-007 appended the paired
+`0100_admin_super_mfa` migration. The current reproducible inventory is
+therefore **100 up migrations** numbered continuously through `0100`, with no
+duplicate identifier or missing matching down file. It now has 101 down files:
 `0000_baseline.down.sql` remains the one documented orphan. The legacy directory
-contains **99 up/down pairs plus one known orphan down**. The target foundation
+contains **100 up/down pairs plus one known orphan down**. The target foundation
 is isolated in the `target` child directory and is not part of this legacy count.
 
 ## Classification rules and totals
@@ -43,7 +44,7 @@ ADR-0001 ownership. Totals are:
 
 | KEEP | FOLD_INTO_BASELINE | REPLACE | DELETE_AFTER_CUTOVER | Total |
 |---:|---:|---:|---:|---:|
-| 0 | 24 | 57 | 18 | 99 |
+| 0 | 25 | 57 | 18 | 100 |
 
 ## Complete manifest
 
@@ -153,12 +154,13 @@ creates, alters, backfills, renames, or removes data/schema.
 | 97 | `0097_users_preferred_lang.up.sql` | yes | Alters users with language preference | 0001 users | Shared public ownership only | FOLD_INTO_BASELINE | Preserve Persian/English preference in Platform identity/profile. |
 | 98 | `0098_fix_migration_audit_issues.up.sql` | yes | Adds indexes; drops/recreates triggers; alters scores/phone/drawing constraints | 0032/0056/0082/0086/0089/0095 | Corrective patch refers to unstable legacy score names and transactional index failures | DELETE_AFTER_CUTOVER | Fold valid end-state constraints into owning replacements; omit the corrective migration itself. |
 | 99 | `0099_admin_canonical_roles.up.sql` | yes | Creates the canonical Support Admin role, limits it to KYC permissions, and migrates legacy Admin assignments | 0001 roles/user roles; 0024 permissions | Transitional shared-public role data is not the clean target Platform auth schema | FOLD_INTO_BASELINE | Preserve canonical USER/SUPPORT_ADMIN/SUPER_ADMIN semantics in the future Platform-owned auth baseline; omit this legacy bridge after cutover. |
+| 100 | `0100_admin_super_mfa.up.sql` | yes | Creates Admin-only MFA credentials and hashed single-use recovery-code tables | 0001 users; 0099 canonical Admin roles | Transitional shared-public placement precedes Platform identity ownership cutover | FOLD_INTO_BASELINE | Preserve the `super_admin_totp_v1` invariants in the Platform-owned Admin identity schema under ARCH-002; never fold the legacy shared User TOTP columns into this credential. |
 
 ## Traceability conclusion
 
-The 99 files remain in the legacy top-level directory only to reproduce current
+The 100 files remain in the legacy top-level directory only to reproduce current
 behavior and supported local evidence until cutover. The clean target command
 uses only the isolated target child directory. After target implementation,
-fresh-install, restore, and explicitly supported upgrade evidence pass, all 99
+fresh-install, restore, and explicitly supported upgrade evidence pass, all 100
 legacy pairs are removed together under a reviewed cutover; individual files
 are never silently edited or mixed into the target version history.

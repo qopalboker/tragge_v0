@@ -13,22 +13,30 @@ import (
 // TokenType distinguishes between access and refresh tokens.
 type TokenType string
 
+// MFAAssurance identifies a server-issued authentication assurance level.
+// It is cryptographically signed in JWTs and mirrored in the durable session;
+// clients cannot opt into an assurance level with a request header.
+type MFAAssurance string
+
 const (
 	// AccessToken is a short-lived token for API access.
 	AccessToken TokenType = "access"
 	// RefreshToken is a long-lived token for obtaining new access tokens.
 	RefreshToken TokenType = "refresh"
+	// MFAAssuranceSuperAdminTOTPV1 is the first Admin-only MFA contract.
+	MFAAssuranceSuperAdminTOTPV1 MFAAssurance = "super_admin_totp_v1"
 )
 
 // Claims represents the JWT claims for authentication tokens.
 type Claims struct {
 	jwt.RegisteredClaims
-	UserID      string      `json:"user_id"`
-	Roles       []string    `json:"roles"`
-	Permissions []string    `json:"permissions,omitempty"`
-	TokenType   TokenType   `json:"token_type"`
-	AuthContext AuthContext `json:"auth_context,omitempty"`
-	SessionID   string      `json:"session_id,omitempty"`
+	UserID       string       `json:"user_id"`
+	Roles        []string     `json:"roles"`
+	Permissions  []string     `json:"permissions,omitempty"`
+	TokenType    TokenType    `json:"token_type"`
+	AuthContext  AuthContext  `json:"auth_context,omitempty"`
+	SessionID    string       `json:"session_id,omitempty"`
+	MFAAssurance MFAAssurance `json:"mfa_assurance,omitempty"`
 }
 
 // JWTConfig holds configuration for JWT token generation.
@@ -117,14 +125,20 @@ func (s *TokenService) GenerateTokenPairWithSession(userID string, roles []strin
 
 // GenerateTokenPairWithSessionAndPermissions creates tokens with session ID and permissions.
 func (s *TokenService) GenerateTokenPairWithSessionAndPermissions(userID string, roles []string, permissions []string, sessionID string) (*TokenPair, error) {
+	return s.GenerateTokenPairWithSessionPermissionsAndMFA(userID, roles, permissions, sessionID, "")
+}
+
+// GenerateTokenPairWithSessionPermissionsAndMFA creates a pair whose MFA
+// assurance is bound to the same server-side session.
+func (s *TokenService) GenerateTokenPairWithSessionPermissionsAndMFA(userID string, roles []string, permissions []string, sessionID string, assurance MFAAssurance) (*TokenPair, error) {
 	now := time.Now()
 
-	accessToken, err := s.generateToken(userID, roles, permissions, AccessToken, sessionID, now)
+	accessToken, err := s.generateToken(userID, roles, permissions, AccessToken, sessionID, assurance, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate access token: %w", err)
 	}
 
-	refreshToken, err := s.generateToken(userID, roles, permissions, RefreshToken, sessionID, now)
+	refreshToken, err := s.generateToken(userID, roles, permissions, RefreshToken, sessionID, assurance, now)
 	if err != nil {
 		return nil, fmt.Errorf("failed to generate refresh token: %w", err)
 	}
@@ -139,12 +153,12 @@ func (s *TokenService) GenerateTokenPairWithSessionAndPermissions(userID string,
 
 // GenerateAccessToken creates a new access token for a user.
 func (s *TokenService) GenerateAccessToken(userID string, roles []string) (string, error) {
-	return s.generateToken(userID, roles, nil, AccessToken, "", time.Now())
+	return s.generateToken(userID, roles, nil, AccessToken, "", "", time.Now())
 }
 
 // GenerateRefreshToken creates a new refresh token for a user.
 func (s *TokenService) GenerateRefreshToken(userID string, roles []string) (string, error) {
-	return s.generateToken(userID, roles, nil, RefreshToken, "", time.Now())
+	return s.generateToken(userID, roles, nil, RefreshToken, "", "", time.Now())
 }
 
 // generateJTI creates a cryptographically secure unique JWT ID.
@@ -156,7 +170,7 @@ func generateJTI() (string, error) {
 	return hex.EncodeToString(b), nil
 }
 
-func (s *TokenService) generateToken(userID string, roles []string, permissions []string, tokenType TokenType, sessionID string, now time.Time) (string, error) {
+func (s *TokenService) generateToken(userID string, roles []string, permissions []string, tokenType TokenType, sessionID string, assurance MFAAssurance, now time.Time) (string, error) {
 	var ttl time.Duration
 	if tokenType == AccessToken {
 		ttl = s.config.AccessTokenTTL
@@ -179,12 +193,13 @@ func (s *TokenService) generateToken(userID string, roles []string, permissions 
 			IssuedAt:  jwt.NewNumericDate(now),
 			NotBefore: jwt.NewNumericDate(now),
 		},
-		UserID:      userID,
-		Roles:       roles,
-		Permissions: permissions,
-		TokenType:   tokenType,
-		AuthContext: s.config.Context,
-		SessionID:   sessionID,
+		UserID:       userID,
+		Roles:        roles,
+		Permissions:  permissions,
+		TokenType:    tokenType,
+		AuthContext:  s.config.Context,
+		SessionID:    sessionID,
+		MFAAssurance: assurance,
 	}
 
 	// TODO: Consider migrating from HS256 to RS256 for asymmetric verification.
@@ -238,6 +253,9 @@ func (s *TokenService) validateTokenWithSecret(tokenString string, secret []byte
 		}
 	}
 	if s.config.Context != "" && claims.AuthContext != s.config.Context {
+		return nil, ErrInvalidToken
+	}
+	if claims.MFAAssurance != "" && claims.MFAAssurance != MFAAssuranceSuperAdminTOTPV1 {
 		return nil, ErrInvalidToken
 	}
 
