@@ -15,6 +15,10 @@ const CI = !!process.env.CI;
 const USER_BASE_URL = process.env.E2E_USER_URL || 'http://localhost:5173';
 const ADMIN_BASE_URL = process.env.E2E_ADMIN_URL || 'http://localhost:5174';
 const SEC007_CHROME_PATH = process.env.SEC007_CHROME_PATH;
+const E2E_CHROME_PATH = process.env.E2E_CHROME_PATH || SEC007_CHROME_PATH;
+const chromiumLaunchOptions = E2E_CHROME_PATH
+  ? { executablePath: E2E_CHROME_PATH }
+  : undefined;
 
 export default defineConfig({
   testMatch: '**/*.spec.ts',
@@ -41,7 +45,10 @@ export default defineConfig({
   use: {
     trace: CI ? 'on-first-retry' : 'retain-on-failure',
     screenshot: 'only-on-failure',
-    video: CI ? 'on-first-retry' : 'retain-on-failure',
+    // A system-Chrome fallback does not imply a matching Playwright ffmpeg
+    // bundle is installed. Video is evidence-only and disabled in that mode;
+    // traces and screenshots remain available for failures.
+    video: E2E_CHROME_PATH ? 'off' : CI ? 'on-first-retry' : 'retain-on-failure',
     extraHTTPHeaders: { Accept: 'application/json' },
     viewport: { width: 1280, height: 720 },
     actionTimeout: 10000,
@@ -56,13 +63,13 @@ export default defineConfig({
       name: 'setup-user',
       testDir: './apps/user-frontend/e2e',
       testMatch: 'auth.setup.ts',
-      use: { baseURL: USER_BASE_URL },
+      use: { baseURL: USER_BASE_URL, launchOptions: chromiumLaunchOptions },
     },
     {
       name: 'setup-admin',
       testDir: './apps/admin-frontend/e2e',
       testMatch: 'auth.setup.ts',
-      use: { baseURL: ADMIN_BASE_URL },
+      use: { baseURL: ADMIN_BASE_URL, launchOptions: chromiumLaunchOptions },
     },
 
     // User panel tests — user/contests/leaderboard/profile/tournaments
@@ -80,6 +87,7 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         baseURL: USER_BASE_URL,
         storageState: './apps/user-frontend/e2e/.auth/user.json',
+        launchOptions: chromiumLaunchOptions,
       },
     },
 
@@ -93,6 +101,7 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         baseURL: USER_BASE_URL,
         storageState: './apps/user-frontend/e2e/.auth/user.json',
+        launchOptions: chromiumLaunchOptions,
       },
     },
 
@@ -106,6 +115,7 @@ export default defineConfig({
         ...devices['Desktop Chrome'],
         baseURL: ADMIN_BASE_URL,
         storageState: './apps/admin-frontend/e2e/.auth/admin.json',
+        launchOptions: chromiumLaunchOptions,
       },
     },
     {
@@ -115,7 +125,7 @@ export default defineConfig({
       use: {
         ...devices['Desktop Chrome'],
         baseURL: ADMIN_BASE_URL,
-        launchOptions: SEC007_CHROME_PATH ? { executablePath: SEC007_CHROME_PATH } : undefined,
+        launchOptions: chromiumLaunchOptions,
         video: 'off',
       },
     },

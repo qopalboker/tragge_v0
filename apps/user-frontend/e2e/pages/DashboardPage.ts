@@ -37,7 +37,7 @@ export class DashboardPage {
     this.header = page.locator('.app-header');
     this.sidebar = page.locator('.app-sidebar');
     this.bottomNav = page.locator('.bottom-nav');
-    this.mainContent = page.locator('.main-content');
+    this.mainContent = page.locator('main');
 
     // Header elements
     this.userMenu = page.locator('.user-menu');

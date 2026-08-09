@@ -1,32 +1,39 @@
-import { test as setup, expect } from '@playwright/test';
-import { TEST_USERS } from '../../../e2e/test-data';
+import { mkdir } from 'node:fs/promises';
+import { dirname } from 'node:path';
 
-const authFile = './apps/user-frontend/e2e/.auth/user.json';
+import { test as setup, expect } from '@playwright/test';
+
+import { TEST_USERS } from '../../../e2e/test-data';
+import {
+  USER_AUTH_STATE_FILE,
+  createMockAuthState,
+  installMockAuthBackend,
+} from './auth-mocks';
+import { LoginPage } from './pages';
 
 /**
- * Authentication setup for admin tests
- * This runs before all admin tests and saves the auth state
+ * Create a User-only storage state through the current User login contract.
+ *
+ * The mocked response installs the same context-specific refresh and session
+ * hint cookie names used by the User BFF. No Admin route, fixture, cookie, or
+ * credential participates in this setup.
  */
-setup('authenticate as admin', async ({ page }) => {
-  // Navigate to admin login page
-  await page.goto('/admin/login');
+setup('authenticate as user', async ({ page }) => {
+  const state = createMockAuthState();
+  await installMockAuthBackend(page, state);
 
-  // Wait for the login form to be visible
-  await expect(page.locator('input[type="email"]')).toBeVisible();
+  const loginPage = new LoginPage(page);
+  await loginPage.goto();
+  await loginPage.loginAndWaitForDashboard(
+    TEST_USERS.standard.email,
+    TEST_USERS.standard.password,
+  );
 
-  // Fill in admin credentials
-  await page.locator('input[type="email"]').fill(TEST_USERS.admin.email);
-  await page.locator('input[type="password"]').fill(TEST_USERS.admin.password);
+  await expect(page.locator('main')).toBeVisible();
+  expect(state.loginRequests).toHaveLength(1);
+  expect(state.loginRequests[0].path).toBe('/api/user/auth/login');
+  expect(state.loginRequests[0].method).toBe('POST');
 
-  // Submit the form
-  await page.locator('button[type="submit"]').click();
-
-  // Wait for successful navigation to admin dashboard
-  await page.waitForURL(/\/admin\/(contests|dashboard|$)/, { timeout: 10000 });
-
-  // Verify we're logged in as admin
-  await expect(page.locator('.admin-layout, .main-content, .app-layout')).toBeVisible({ timeout: 5000 });
-
-  // Save the authentication state
-  await page.context().storageState({ path: authFile });
+  await mkdir(dirname(USER_AUTH_STATE_FILE), { recursive: true });
+  await page.context().storageState({ path: USER_AUTH_STATE_FILE });
 });

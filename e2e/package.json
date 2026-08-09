@@ -1,0 +1,5 @@
+{
+  "name": "@tragge/e2e-shared",
+  "private": true,
+  "type": "module"
+}
